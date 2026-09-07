@@ -2,7 +2,7 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, after the peer message delivery implementation.
+Last reviewed: September 6, 2026, against implementation commit `867e422`, including the completed two-terminal delivery check.
 
 The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, and peer message delivery with retries. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
@@ -52,7 +52,7 @@ Registration and metadata replacement clear omitted metadata fields. Callers mus
 * Production defaults to `network.bind_address = "tailscale"` and port `47832`, binding only to the detected local Tailscale IPv4 address. Explicit development mode permits loopback; wildcard addresses are rejected.
 * `GET /v1/health` for process liveness, `GET /v1/hello` for public node and version information, and `GET /v1/agents` for local agents only.
 * Protocol version 1 in application response bodies and the `X-Agent-Relay-Protocol-Version` header. The `/v1/` URL supplies the request version; an optional request header is checked for compatibility.
-* Validated public response objects, consistent JSON application errors, and rejection of unsupported methods, request bodies, and query parameters.
+* Validated public response objects, consistent JSON application errors, and rejection of unsupported methods and query parameters. The GET endpoints reject request bodies; message delivery accepts bounded JSON bodies.
 * Separate public agent types containing only ID, display name, provider, status, task, project, repository, and branch. Working directories and file lists are never serialized by HTTP handlers.
 * Conservative filtering of unsafe metadata values and normalization of HTTP(S) repository URLs. Free-form metadata must still be suitable for publication; filtering is not a general detector for every possible secret.
 * Five-second request contexts and header-read timeouts, ten-second read/write timeouts, a thirty-second idle timeout, and a 16 KiB header limit.
@@ -95,7 +95,7 @@ HTTP delivery, CLI messaging, retry scheduling, and daemon expiration scheduling
 * Five-second outbound request limits, bounded responses, rejected redirects/proxies, terminal rejection handling, and daemon expiration sweeps.
 * Local `messages send`, `get`, `inbox`, and `history` commands. Response-specific convenience APIs and MCP remain deferred.
 
-See [peer delivery and the two-terminal procedure](docs/delivery.md). Live Tailscale delivery remains unverified; localhost tests cover this chunk.
+The manual two-terminal procedure passed on localhost: A sent a question to B, B sent a regular message to A, and an outgoing follow-up remained `pending_delivery` while B was stopped before delivering automatically after restart. B retained exactly three ordered messages, readable from a fresh CLI process after both daemons stopped. Both test daemons were shut down. See [peer delivery and the recorded procedure](docs/delivery.md). Live two-machine Tailscale delivery remains unverified.
 
 ### Current schema and verification
 
@@ -1372,6 +1372,8 @@ Do not require constant updates for every small action.
 
 # 33. Trust Model
 
+Current implementation: `[[trusted_peers]]` configuration explicitly pairs stable Relay node IDs with peer addresses and ports. Message receipt checks the claimed node ID against the connection source IP; discovery grants no trust. Remote agent and conversation ownership are persisted. Full trust/block management and CLI commands below remain pending. Loopback mode is for development and does not authenticate individual local processes.
+
 Membership in the same tailnet should not automatically imply unlimited Agent Relay access.
 
 V0.1 should implement basic explicit trust.
@@ -1635,6 +1637,8 @@ INTERNAL_ERROR
 
 # 41. Offline Behavior
 
+Current implementation: the durable outbox follows the schedule below, with each delay measured from completion of the preceding attempt. Subsequent retries use `messages.retry_interval_seconds` (default 900, minimum 300). Each request is bounded to five seconds and the persisted delivery deadline. Temporary connection failures, timeouts, HTTP 408/429/5xx, and invalid acknowledgments are retried; permanent rejections become `failed`. Questions become `expired` at their original deadline. Undelivered ordinary messages become `failed` when their outbox lifetime ends. The daemon sweeps expiration once a second, and queued attempts survive restarts.
+
 If a peer node is temporarily offline:
 
 For V0.1, the sender should retain the outgoing message locally.
@@ -1879,7 +1883,7 @@ or user-local equivalent.
 
 # 47. Configuration
 
-The configuration file is optional. Production defaults to `network.bind_address = "tailscale"` and `network.development = false`. Discovery settings are active; messaging settings remain validation-only until messaging is implemented. For local testing, set `network.development = true` and `network.bind_address = "127.0.0.1"`. Restart the daemon after configuration or binary changes.
+The configuration file is optional. Production defaults to `network.bind_address = "tailscale"` and `network.development = false`. Discovery and messaging settings are active. `messages.request_expiration_hours` controls question expiration and ordinary-message outbox lifetime; `messages.retry_interval_seconds` controls the slower retry interval after the initial schedule. Configure `[[trusted_peers]]` entries with `node_id`, `address`, and `port` to enable peer messaging. An empty trust list rejects incoming messages and outgoing queue requests. For local testing, set `network.development = true` and `network.bind_address = "127.0.0.1"`. Restart the daemon after configuration or binary changes.
 
 Example:
 
@@ -1896,6 +1900,7 @@ offline_after_seconds = 30
 
 [messages]
 request_expiration_hours = 24
+retry_interval_seconds = 900
 
 [logging]
 level = "info"
@@ -2450,6 +2455,8 @@ follow-ups
 At this stage, the complete A ↔ B transport should work through CLI tests.
 
 ## Phase 7: Trust
+
+Status: temporary configured node/address trust is enforced at the message transport boundary. Full trust/block management and CLI trust commands remain pending.
 
 Build:
 
