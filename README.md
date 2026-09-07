@@ -1,6 +1,6 @@
 # Agent Relay
 
-Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. It now includes [peer message delivery](docs/delivery.md), [persistent peer trust](docs/trust.md), durable outgoing retries, and CLI messaging with linked responses and follow-up conversations. It includes [MCP tools for coding agents](docs/mcp.md) with automatic session registration. Service installation remains pending.
+Local agent communication for the [Agent Relay PRD](PRD.md), implemented in Go. Agent Relay provides Tailscale peer discovery, [persistent peer trust](docs/trust.md), [durable messaging](docs/delivery.md), and [MCP tools for coding agents](docs/mcp.md) with automatic session registration. It includes [Codex and Claude Code setup](docs/setup.md) and [macOS/Linux background services](docs/services.md). A download installer remains pending.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.
 
@@ -152,4 +152,16 @@ Unique peer names are also accepted. Decisions take effect without a restart. Ex
 
 ## MCP clients
 
-Configure a generic stdio MCP client to launch `agent-relay mcp --home /absolute/path/to/.agent-relay`. Use the same data directory as your daemon. Registration and heartbeats happen automatically; the eight `relay.*` tools expose discovery, messaging, inboxes, conversation history and status. See [connection configuration, tool inputs, polling and reconnect behavior](docs/mcp.md). Restart your backend daemon and reconnect MCP clients after installing this build.
+Run `agent-relay setup` to detect and configure installed Codex and Claude Code clients. Explicit `setup codex` and `setup claude` commands, custom config paths, backups, and conflict handling are documented in [MCP setup](docs/setup.md). Use `--home` to select the same Relay data directory as your daemon. Restart or reconnect clients to load the tools.
+
+Other stdio clients can launch `agent-relay mcp --home /absolute/path/to/.agent-relay`. Registration and heartbeats happen automatically; the eight `relay.*` tools expose discovery, messaging, inboxes, conversation history and status. See [tool inputs, polling and reconnect behavior](docs/mcp.md).
+
+## Background service
+
+```sh
+agent-relay service install --home /absolute/path/to/.agent-relay
+agent-relay service status
+agent-relay setup --home /absolute/path/to/.agent-relay
+```
+
+Services run as your login user through macOS launchd or Linux systemd. Use `service start`, `stop`, `restart`, and `uninstall` to manage them. Install copies the executable to a stable user directory and starts it at login. Rerun `service install` from a new build to upgrade the installed backend; `service restart` restarts its existing private copy. Stop any foreground daemon using the same home first. See [exact file changes, logs, upgrades, and manual troubleshooting](docs/services.md). Windows services remain future work.

@@ -42,6 +42,7 @@ Commands:
   agents    List, inspect, register, or update local agents (agents help)
   mcp       Serve agent tools over stdio (one coding session per process)
   setup     Configure Codex and Claude Code MCP clients (setup help)
+  service   Install and control a background daemon (service help)
   messages  Queue messages or inspect local inboxes (messages help)
   version   Print the binary version
   help      Show this help
@@ -75,6 +76,8 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return err
 	case "setup":
 		return runSetup(args[1:], output, errorOutput)
+	case "service":
+		return runService(ctx, args[1:], output, errorOutput)
 	case "mcp", "daemon", "status", "agents", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)

@@ -15,7 +15,8 @@ The repository currently implements the project foundation, local agent registry
 | Phases 5 and 6: Messaging and responses | Durable inboxes, ordered history, response linkage, answered timestamps, follow-ups, idempotency, expiration, HTTP transport, and CLI messaging implemented. The section 56 conversation test passes both through internal APIs and through MCP. |
 | Phase 7: Trust | Implemented: SQLite unknown/trusted/blocked states, stable Tailscale device bindings, live request and retry enforcement, CLI trust/block/inspection, and diagnostics. |
 | Phase 8: MCP | Implemented: eight stdio tools, automatic registration, heartbeats, session access checks, peer lookup, and MCP conversation tests. |
-| Phases 9 and 10: Services and installer | Not implemented. |
+| Phase 9: Services | Implemented: macOS launchd and Linux systemd user lifecycle commands, stable private binary installation, backups, and graceful restarts. |
+| Phase 10: Installer | Codex/Claude Code local MCP setup is implemented. Download/checksum installer remains pending. |
 | Phase 11: Hardening | Some foundational validation, timeouts, and shutdown handling exist; the full phase remains pending. |
 
 ### Built: project foundation
@@ -29,7 +30,7 @@ The repository currently implements the project foundation, local agent registry
 * Ordered transactional migrations, failure rollback, and rejection of newer database schemas.
 * Persistent UUIDv7 node identity and a saved node display name.
 * A foreground daemon with per-directory process locking and signal-driven shutdown.
-* Basic local daemon/database status. OS service installation is still pending.
+* Basic local daemon/database status and macOS/Linux user service installation.
 
 ### Built: local agents and presence
 
@@ -2496,7 +2497,9 @@ relay.update_status
 
 ## Phase 9: Service installation
 
-Implement:
+Status: implemented. See [service lifecycle, upgrades, and troubleshooting](docs/services.md). Windows services remain future work.
+
+Built:
 
 ```text
 launchd
@@ -2505,6 +2508,8 @@ Windows service later if necessary
 ```
 
 ## Phase 10: Installer
+
+Status: local MCP configuration through `agent-relay setup`, `setup codex`, and `setup claude` is implemented with backups and safe conflict handling. See [exact setup behavior](docs/setup.md). Binary download and checksum installation remain pending.
 
 Build:
 

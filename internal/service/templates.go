@@ -1,0 +1,39 @@
+package service
+
+const launchTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>{{.Label}}</string>
+<key>ProgramArguments</key><array><string>{{.Binary}}</string><string>daemon</string><string>--home</string><string>{{.Home}}</string></array>
+<key>WorkingDirectory</key><string>{{.Home}}</string>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>{{.SearchPath}}</string></dict>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+<key>ThrottleInterval</key><integer>10</integer>
+<key>ExitTimeOut</key><integer>45</integer>
+<key>Umask</key><integer>63</integer>
+<key>StandardOutPath</key><string>{{.Log}}</string>
+<key>StandardErrorPath</key><string>{{.Log}}</string>
+</dict></plist>
+`
+
+const systemdTemplate = `[Unit]
+Description=Agent Relay background daemon
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+ExecStart={{.Binary}} daemon --home {{.Home}}
+WorkingDirectory=/
+Environment={{.SearchPath}}
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+KillSignal=SIGTERM
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+`
