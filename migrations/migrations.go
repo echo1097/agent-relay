@@ -99,5 +99,16 @@ CREATE TABLE outbox (
  last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX outbox_due ON outbox(next_attempt_at);
+`}, {Version: 5, SQL: `
+CREATE TABLE peer_trust (
+ node_id TEXT PRIMARY KEY NOT NULL,
+ name TEXT NOT NULL,
+ state TEXT NOT NULL CHECK (state IN ('unknown', 'trusted', 'blocked')),
+ tailscale_id TEXT NOT NULL DEFAULT '',
+ address TEXT NOT NULL DEFAULT '',
+ port INTEGER NOT NULL DEFAULT 47832 CHECK (port BETWEEN 1 AND 65535),
+ development INTEGER NOT NULL DEFAULT 0 CHECK (development IN (0, 1)),
+ CHECK (state != 'trusted' OR tailscale_id != '' OR development = 1)
+);
 `}}
 }
