@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,7 +87,7 @@ func TestDeliveryFailures(t *testing.T) {
 }
 
 func TestAcknowledgmentValidation(t *testing.T) {
-	for _, kind := range []string{"valid", "wrong node", "wrong message", "wrong version", "malformed", "oversized"} {
+	for _, kind := range []string{"valid", "wrong node", "wrong message", "wrong version", "duplicate version", "malformed", "oversized"} {
 		t.Run(kind, func(t *testing.T) {
 			peerID := ""
 			service, message, targetID := transportFixture(t, func(writer http.ResponseWriter, request *http.Request) {
@@ -104,6 +105,8 @@ func TestAcknowledgmentValidation(t *testing.T) {
 					ack.MessageID, _ = messaging.NewID("msg")
 				case "wrong version":
 					writer.Header().Set(protocol.VersionHeader, "2")
+				case "duplicate version":
+					writer.Header().Add(protocol.VersionHeader, "2")
 				case "malformed":
 					writer.Write([]byte("invalid"))
 					return
@@ -133,5 +136,17 @@ func TestRetryScheduleAndTrust(t *testing.T) {
 		if actual := RetryDelay(index, 15*time.Minute); actual != delay {
 			t.Fatalf("attempt %d: %v", index, actual)
 		}
+	}
+}
+
+func TestRejectionTextNeverEscapesPeerResponse(t *testing.T) {
+	secret := "private message echoed by peer"
+	service, message, peerID := transportFixture(t, func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(writer).Encode(protocol.Error{ProtocolVersion: 1, Error: protocol.ErrorDetail{Code: protocol.NodeNotTrusted, Message: secret}})
+	})
+	retry, reason := service.Send(context.Background(), message, peerID)
+	if retry || strings.Contains(reason, secret) || !strings.HasPrefix(reason, protocol.NodeNotTrusted) {
+		t.Fatalf("unsafe reason: %s", reason)
 	}
 }

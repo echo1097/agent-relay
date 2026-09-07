@@ -29,7 +29,8 @@ func (prober *HTTPProber) Agents(ctx context.Context, address string, port int) 
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > 1024*1024 || response.StatusCode != http.StatusOK || response.Header.Get(protocol.VersionHeader) != "1" {
+	versions := response.Header.Values(protocol.VersionHeader)
+	if len(data) > 1024*1024 || response.StatusCode != http.StatusOK || len(versions) != 1 || versions[0] != "1" {
 		return nil, ErrMalformed
 	}
 	var result protocol.AgentList

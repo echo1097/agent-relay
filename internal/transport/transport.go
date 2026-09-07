@@ -33,6 +33,9 @@ type Service struct {
 }
 
 func New(store *storage.Store, nodeID, localIP string, cfg config.Config, logger *slog.Logger) *Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	dialer := &net.Dialer{Timeout: 3 * time.Second}
 	if localIP != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(localIP)}
@@ -82,7 +85,10 @@ func (service *Service) Queue(ctx context.Context, message messaging.Message, pe
 	if err := protocol.WireMessage(message).Validate(); err != nil {
 		return messaging.Message{}, err
 	}
-	saved, _, err := service.Store.QueueAuthorized(ctx, message, peerID, now, deadline)
+	saved, duplicate, err := service.Store.QueueAuthorized(ctx, message, peerID, now, deadline)
+	if err == nil && !duplicate {
+		service.Logger.Info("message queued", "message_id", saved.ID, "peer_id", peerID, "type", saved.Type)
+	}
 	return saved, err
 }
 
@@ -110,6 +116,9 @@ func (service *Service) Respond(ctx context.Context, agentID, messageID, text st
 
 func RetryDelay(attempts int, interval time.Duration) time.Duration {
 	delays := []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute, 5 * time.Minute}
+	if attempts < 0 {
+		attempts = 0
+	}
 	if attempts < len(delays) {
 		return delays[attempts]
 	}
@@ -121,7 +130,11 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 	defer cancel()
 	peer, err := service.trustedPeer(ctx, peerID)
 	if err != nil {
-		return false, err.Error()
+		var authorization *AuthorizationError
+		if errors.As(err, &authorization) {
+			return false, authorization.Error()
+		}
+		return true, "LOCAL_STORAGE_UNAVAILABLE"
 	}
 	if !service.Development {
 		address, err := service.peerAddress(ctx, peer)
@@ -131,6 +144,9 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 		peer.Address = address
 		hello, err := service.Prober.Hello(ctx, address, peer.Port)
 		if err != nil {
+			if errors.Is(err, discovery.ErrIncompatible) {
+				return false, protocol.UnsupportedProtocol + ": upgrade both Relay nodes to compatible versions"
+			}
 			return true, "PEER_UNREACHABLE: unable to verify Relay identity"
 		}
 		if hello.Node.ID != peer.NodeID {
@@ -167,8 +183,13 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 		}
 		data, err := io.ReadAll(io.LimitReader(response.Body, 64*1024+1))
 		var rejection protocol.Error
-		if err == nil && len(data) <= 64*1024 && json.Unmarshal(data, &rejection) == nil && rejection.Validate() == nil && rejection.Error.Code == protocol.NodeNotTrusted {
-			return false, protocol.NodeNotTrusted + ": " + rejection.Error.Message
+		if err == nil && len(data) <= 64*1024 && json.Unmarshal(data, &rejection) == nil && rejection.Validate() == nil {
+			switch rejection.Error.Code {
+			case protocol.NodeNotTrusted:
+				return false, protocol.NodeNotTrusted + ": ask the receiving owner to inspect trust-state and verify the sender"
+			case protocol.UnsupportedProtocol:
+				return false, protocol.UnsupportedProtocol + ": upgrade both Relay nodes to compatible versions"
+			}
 		}
 		return false, "DELIVERY_REJECTED"
 	}
@@ -177,7 +198,8 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 		return true, "INVALID_ACKNOWLEDGMENT"
 	}
 	var ack protocol.DeliveryAck
-	if json.Unmarshal(data, &ack) != nil || ack.Validate() != nil || ack.MessageID != message.ID || ack.NodeID != peerID || response.Header.Get(protocol.VersionHeader) != "1" {
+	versions := response.Header.Values(protocol.VersionHeader)
+	if json.Unmarshal(data, &ack) != nil || ack.Validate() != nil || ack.MessageID != message.ID || ack.NodeID != peerID || len(versions) != 1 || versions[0] != "1" {
 		return true, "INVALID_ACKNOWLEDGMENT"
 	}
 	return false, ""
@@ -200,11 +222,13 @@ func (service *Service) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := service.Store.UpdateMessageStatus(ctx, message.ID, messaging.Sending, time.Now().UTC()); err != nil {
-			if errors.Is(err, messaging.ErrTransition) {
-				continue
+		if message.Status != messaging.Sending {
+			if _, err := service.Store.UpdateMessageStatus(ctx, message.ID, messaging.Sending, time.Now().UTC()); err != nil {
+				if errors.Is(err, messaging.ErrTransition) {
+					continue
+				}
+				return err
 			}
-			return err
 		}
 		attemptCtx, cancel := context.WithDeadline(ctx, item.Deadline)
 		retry, reason := service.Send(attemptCtx, message, item.NodeID)
@@ -223,22 +247,37 @@ func (service *Service) Tick(ctx context.Context) error {
 		if err := service.Store.FinishDelivery(ctx, message.ID, status, now.Add(RetryDelay(item.Attempts, service.RetryInterval)), now, reason); err != nil {
 			return err
 		}
+		event := "message delivered"
+		if message.Type == messaging.Response {
+			event = "response delivered"
+		}
+		if reason != "" {
+			event = "delivery failed"
+		}
+		service.Logger.Info(event, "message_id", message.ID, "peer_id", item.NodeID, "status", status, "reason", reason)
 	}
 	return service.Store.ExpireDeliveries(ctx, time.Now().UTC())
 }
 
 func (service *Service) Run(ctx context.Context) {
 	defer service.Client.CloseIdleConnections()
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
+	delay := 250 * time.Millisecond
 	for {
 		if err := service.Tick(ctx); err != nil && ctx.Err() == nil {
 			service.Logger.Error("delivery queue processing failed")
+			delay *= 2
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+		} else {
+			delay = 250 * time.Millisecond
 		}
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }

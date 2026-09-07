@@ -72,7 +72,7 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 		handler.writeError(writer, 400, protocol.InvalidRequest, "Use the endpoint matching the message type.")
 		return
 	}
-	saved, _, err := handler.delivery.Store.ReceiveAuthorized(request.Context(), message.Local(), nodeIDs[0], time.Now().UTC())
+	saved, duplicate, err := handler.delivery.Store.ReceiveAuthorized(request.Context(), message.Local(), nodeIDs[0], time.Now().UTC())
 	if err != nil {
 		status, code, detail := 500, protocol.InternalError, "The message could not be stored."
 		switch {
@@ -98,6 +98,9 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 	if saved.ReceivedAt == nil {
 		handler.writeError(writer, 409, protocol.MessageConflict, "The message ID is already in use.")
 		return
+	}
+	if !duplicate {
+		handler.logger.Info("message received", "message_id", saved.ID, "peer_id", nodeIDs[0], "type", saved.Type)
 	}
 	handler.writeJSON(writer, 200, protocol.DeliveryAck{ProtocolVersion: protocol.Version, NodeID: handler.hello.Node.ID, MessageID: saved.ID, Status: "delivered", ReceivedAt: *saved.ReceivedAt})
 }

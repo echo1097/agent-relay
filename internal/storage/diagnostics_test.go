@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"agent-relay/migrations"
 )
 
 func TestDiagnosticsPreserveState(t *testing.T) {
@@ -51,5 +53,29 @@ func TestDiagnosticsPreserveState(t *testing.T) {
 	}
 	if _, err := inspector.db.ExecContext(ctx, "DELETE FROM local_node"); err == nil {
 		t.Fatal("inspection allowed mutation")
+	}
+}
+
+func TestStartupRejectsMissingIdentityAndMigrationGaps(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Node(ctx, "original"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, "DELETE FROM local_node"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Node(ctx, "replacement"); err == nil {
+		t.Fatal("replaced incomplete identity")
+	}
+	if _, err := store.db.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.migrate(ctx, migrations.All()); err == nil {
+		t.Fatal("startup accepted a migration gap")
 	}
 }

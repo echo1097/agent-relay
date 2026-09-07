@@ -418,3 +418,27 @@ func TestReceiptNeverAcknowledgesFailedWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestInterruptedSendingResumesAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	nodeA := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeB := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeB.start(t)
+	defer nodeB.stop(t)
+	trustNode(t, nodeA, nodeB)
+	trustNode(t, nodeB, nodeA)
+	message, err := nodeA.service.Queue(ctx, messaging.Message{SenderAgentID: nodeA.agent.ID, RecipientAgentID: nodeB.agent.ID, Type: messaging.MessageType, Text: "interrupted before acknowledgment"}, nodeB.node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nodeA.store.UpdateMessageStatus(ctx, message.ID, messaging.Sending, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	nodeA.start(t)
+	defer nodeA.stop(t)
+	waitMessage(t, nodeA.store, message.ID, messaging.Delivered)
+	inbox, err := nodeB.store.GetMessage(ctx, message.ID)
+	if err != nil || inbox.Text != message.Text {
+		t.Fatalf("recovered delivery: %+v %v", inbox, err)
+	}
+}

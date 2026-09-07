@@ -30,11 +30,18 @@ func openLock(path string) (*os.File, bool, error) {
 }
 
 func Running(path string) (bool, error) {
-	file, running, err := openLock(path)
-	if err != nil || running {
-		return running, err
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
 	}
-	return false, file.Close()
+	if err != nil {
+		return false, err
+	}
+	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return true, file.Close()
+	}
+	return false, errors.Join(err, file.Close())
 }
 
 func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents.Registry, options HTTPOptions) (returnErr error) {
@@ -62,38 +69,52 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 	if err := writeRuntime(file, Runtime{Address: listener.Addr().String(), NodeID: options.Node.ID, Version: options.Version}); err != nil {
 		return errors.Join(err, listener.Close(), file.Close())
 	}
+	httpCtx, cancelHTTP := context.WithCancel(context.Background())
+	defer cancelHTTP()
+	server.BaseContext = func(net.Listener) context.Context { return httpCtx }
+	requests := &requestTracker{handler: server.Handler}
+	server.Handler = requests
 	serveErrors := make(chan error, 1)
-	go func() { serveErrors <- server.Serve(listener) }()
-	defer func() {
-		httpCtx, stopHTTP := context.WithTimeout(context.Background(), 5*time.Second)
-		shutdownErr := server.Shutdown(httpCtx)
-		stopHTTP()
-		if shutdownErr != nil {
-			shutdownErr = errors.Join(shutdownErr, server.Close())
-		}
-		returnErr = errors.Join(returnErr, shutdownErr)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		returnErr = errors.Join(returnErr, registry.OfflineAll(shutdownCtx), file.Close())
-		logger.Info("daemon stopped")
+	serveDone := make(chan struct{})
+	go func() {
+		defer close(serveDone)
+		serveErrors <- server.Serve(listener)
 	}()
 	backgroundCtx, stopBackground := context.WithCancel(ctx)
 	backgroundDone := make(chan struct{})
+	deliveryDone := make(chan struct{})
+	defer func() {
+		requests.stop()
+		stopBackground()
+		shutdownCtx, stopHTTP := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := server.Shutdown(shutdownCtx)
+		stopHTTP()
+		if shutdownErr != nil {
+			cancelHTTP()
+			shutdownErr = errors.Join(shutdownErr, server.Close())
+		}
+		requests.active.Wait()
+		<-serveDone
+		<-backgroundDone
+		<-deliveryDone
+		returnErr = errors.Join(returnErr, shutdownErr)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		returnErr = errors.Join(returnErr, registry.OfflineAll(cleanupCtx), file.Close())
+		logger.Info("daemon stopped")
+	}()
 	go func() {
 		defer close(backgroundDone)
 		if options.Background != nil {
 			options.Background(backgroundCtx)
 		}
 	}()
-	defer func() { stopBackground(); <-backgroundDone }()
-	deliveryDone := make(chan struct{})
 	go func() {
 		defer close(deliveryDone)
 		if options.Delivery != nil {
 			options.Delivery.Run(backgroundCtx)
 		}
 	}()
-	defer func() { stopBackground(); <-deliveryDone }()
 	logger.Info("daemon started", "pid", os.Getpid(), "address", listener.Addr().String())
 	if options.Ready != nil {
 		options.Ready(listener.Addr())

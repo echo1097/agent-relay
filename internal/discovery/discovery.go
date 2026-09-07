@@ -83,13 +83,16 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 	if manager.snapshot.UpdatedAt.IsZero() && manager.Path != "" {
 		cached, err := Read(manager.Path)
 		if err != nil {
-			return Snapshot{}, err
+			if manager.Logger != nil {
+				manager.Logger.Warn("discovery cache unreadable; rebuilding from live peers")
+			}
+		} else {
+			manager.snapshot = cached
 		}
-		manager.snapshot = cached
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	roundCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	status, statusErr := manager.Client.Status(ctx)
+	status, statusErr := manager.Client.Status(roundCtx)
 	if statusErr == nil && !status.Connected {
 		statusErr = errors.New("Tailscale disconnected; run tailscale up")
 	}
@@ -128,11 +131,11 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 		go func() {
 			defer workers.Done()
 			for peer := range jobs {
-				if ctx.Err() != nil {
-					results <- result{peer: peer, err: ctx.Err()}
+				if roundCtx.Err() != nil {
+					results <- result{peer: peer, err: roundCtx.Err()}
 					continue
 				}
-				hello, err := manager.Prober.Hello(ctx, peer.IP, manager.Port)
+				hello, err := manager.Prober.Hello(roundCtx, peer.IP, manager.Port)
 				if err == nil && (hello.Validate() != nil || hello.Node.ID == manager.LocalID) {
 					err = ErrMalformed
 				}
@@ -142,6 +145,8 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 	}
 	workers.Wait()
 	close(results)
+	persistCtx, stopPersist := context.WithTimeout(ctx, 5*time.Second)
+	defer stopPersist()
 	for probe := range results {
 		peer := previous[probe.peer.ID]
 		oldState := peer.State
@@ -149,7 +154,7 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 		peer.IP = probe.peer.IP
 		if probe.err == nil {
 			if manager.Store != nil {
-				if err := manager.Store.ObservePeer(ctx, probe.hello.Node); err != nil {
+				if err := manager.Store.ObservePeer(persistCtx, probe.hello.Node); err != nil {
 					return next, err
 				}
 			}

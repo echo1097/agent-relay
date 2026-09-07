@@ -157,7 +157,7 @@ func (doctorClient) Status(context.Context) (tailscale.Status, error) {
 type doctorProber struct{ local, remote protocol.Hello }
 
 func (prober doctorProber) Hello(_ context.Context, ip string, _ int) (protocol.Hello, error) {
-	if ip == "100.64.0.1" {
+	if ip == "100.64.0.1" || ip == "127.0.0.1" {
 		return prober.local, nil
 	}
 	return prober.remote, nil

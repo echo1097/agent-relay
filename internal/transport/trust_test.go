@@ -89,7 +89,7 @@ func TestRemoteTrustRejectionPreserved(t *testing.T) {
 		writer.Write([]byte(`{"protocol_version":1,"error":{"code":"NODE_NOT_TRUSTED","message":"This node is blocked."}}`))
 	})
 	retry, reason := service.Send(context.Background(), message, peerID)
-	if retry || reason != "NODE_NOT_TRUSTED: This node is blocked." {
+	if retry || !strings.HasPrefix(reason, "NODE_NOT_TRUSTED:") || strings.Contains(reason, "This node is blocked.") {
 		t.Fatalf("rejection: %v %s", retry, reason)
 	}
 }

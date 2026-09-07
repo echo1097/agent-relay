@@ -51,7 +51,11 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 	}()
 	report.check("Agent Relay version", version != "", version, "Rebuild or reinstall Agent Relay.")
 	cfg, configErr := config.Load(paths.Config)
-	report.check("Configuration readability", configErr == nil, paths.Config, "Repair config.toml syntax and settings, and check file permissions. Then restart the daemon.")
+	configDetail := paths.Config + " (defaults for missing or omitted settings)"
+	if configErr != nil {
+		configDetail += ": " + configErr.Error()
+	}
+	report.check("Configuration readability", configErr == nil, configDetail, "Repair config.toml syntax and settings, and check file permissions. Then restart the daemon.")
 	if configErr != nil {
 		cfg = config.Defaults()
 	}
@@ -65,7 +69,11 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 	}
 	report.check("Database readability", storeErr == nil, paths.Database, "Check database and directory permissions. If damaged, stop Relay, preserve the database with its WAL/SHM files and restore a verified backup. For a new installation, run agent-relay status with this --home.")
 	writeErr := storage.CheckWritable(ctx, paths.Database)
-	report.check("Database writability", writeErr == nil, "transactional write probe rolled back", "Check free disk space, database/directory write permissions, and competing SQLite writers. Preserve existing identities.")
+	writeDetail := "transactional write probe rolled back"
+	if writeErr != nil {
+		writeDetail = "SQLite write probe failed"
+	}
+	report.check("Database writability", writeErr == nil, writeDetail, "Check free disk space, database/directory write permissions, and competing SQLite writers. Preserve existing identities.")
 	if store != nil {
 		migrationErr := store.CheckMigrations(ctx)
 		detail := "migration history matches this binary"

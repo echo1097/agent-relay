@@ -40,7 +40,9 @@ func (store *Store) messageTransaction(ctx context.Context, action func(*sql.Con
 	committed := false
 	defer func() {
 		if !committed {
-			_, err := conn.ExecContext(context.Background(), "ROLLBACK")
+			rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := conn.ExecContext(rollbackCtx, "ROLLBACK")
 			returnErr = errors.Join(returnErr, err)
 		}
 	}()

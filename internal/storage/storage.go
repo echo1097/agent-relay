@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"agent-relay/internal/protocol"
 	"agent-relay/migrations"
 	"modernc.org/sqlite"
 	"modernc.org/sqlite/lib"
@@ -87,7 +88,9 @@ func (store *Store) migrate(ctx context.Context, steps []migrations.Migration) (
 	committed := false
 	defer func() {
 		if !committed {
-			_, rollbackErr := conn.ExecContext(context.Background(), "ROLLBACK")
+			rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, rollbackErr := conn.ExecContext(rollbackCtx, "ROLLBACK")
 			returnErr = errors.Join(returnErr, rollbackErr)
 		}
 	}()
@@ -100,6 +103,13 @@ func (store *Store) migrate(ctx context.Context, steps []migrations.Migration) (
 	}
 	if currentVersion > len(steps) {
 		return fmt.Errorf("database schema %d is newer than supported schema %d", currentVersion, len(steps))
+	}
+	var count, invalid int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(SUM(version < 1), 0) FROM schema_migrations").Scan(&count, &invalid); err != nil {
+		return err
+	}
+	if count != currentVersion || invalid != 0 {
+		return errors.New("migration history has gaps or invalid versions; restore a verified database backup")
 	}
 	for index, step := range steps {
 		if step.Version != index+1 {
@@ -128,34 +138,38 @@ func (store *Store) SchemaVersion(ctx context.Context) (int, error) {
 	return version, err
 }
 
-func (store *Store) Node(ctx context.Context, name string) (node Node, returnErr error) {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Node{}, err
-	}
-	defer func() {
-		rollbackErr := tx.Rollback()
-		if !errors.Is(rollbackErr, sql.ErrTxDone) {
-			returnErr = errors.Join(returnErr, rollbackErr)
+func (store *Store) Node(ctx context.Context, name string) (Node, error) {
+	var node Node
+	err := store.messageTransaction(ctx, func(conn *sql.Conn) error {
+		err := conn.QueryRowContext(ctx, "SELECT nodes.id, nodes.name FROM nodes JOIN local_node ON nodes.id = local_node.node_id WHERE singleton = 1").Scan(&node.ID, &node.Name)
+		if err == nil {
+			if err := (protocol.Node{ID: node.ID, Name: node.Name}).Validate(); err != nil {
+				return errors.New("invalid persistent node identity; restore a verified database backup")
+			}
+			return nil
 		}
-	}()
-	nodeID, err := newNodeID()
-	if err != nil {
-		return Node{}, err
-	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO nodes (id, name, trust_state) SELECT ?, ?, 'trusted' WHERE NOT EXISTS (SELECT 1 FROM local_node)", nodeID, name)
-	if err != nil {
-		return Node{}, err
-	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO local_node (singleton, node_id) VALUES (1, ?) ON CONFLICT(singleton) DO NOTHING", nodeID)
-	if err != nil {
-		return Node{}, err
-	}
-	err = tx.QueryRowContext(ctx, "SELECT nodes.id, nodes.name FROM nodes JOIN local_node ON nodes.id = local_node.node_id WHERE singleton = 1").Scan(&node.ID, &node.Name)
-	if err != nil {
-		return Node{}, err
-	}
-	return node, tx.Commit()
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var count int
+		if err := conn.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM nodes) + (SELECT COUNT(*) FROM local_node)").Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			return errors.New("persistent node identity is incomplete; restore a verified database backup instead of creating a new identity")
+		}
+		node.ID, err = newNodeID()
+		if err != nil {
+			return err
+		}
+		node.Name = name
+		if _, err := conn.ExecContext(ctx, "INSERT INTO nodes (id, name, trust_state) VALUES (?, ?, 'trusted')", node.ID, node.Name); err != nil {
+			return err
+		}
+		_, err = conn.ExecContext(ctx, "INSERT INTO local_node (singleton, node_id) VALUES (1, ?)", node.ID)
+		return err
+	})
+	return node, err
 }
 
 func newNodeID() (string, error) {
