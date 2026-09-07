@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agent-relay/internal/messaging"
+	"agent-relay/internal/storage"
 )
 
 func TestMessageCommands(t *testing.T) {
@@ -60,8 +61,40 @@ func TestMessageCommands(t *testing.T) {
 	if err != nil || strings.TrimSpace(output) != "[]" {
 		t.Fatalf("outgoing leaked into inbox: %s %v", output, err)
 	}
+	store, err := storage.Open(context.Background(), filepath.Join(home, "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	incoming := message
+	incoming.ID, err = messaging.NewID("msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	incoming.SenderAgentID, incoming.RecipientAgentID = recipientID, senderID
+	if _, _, err := store.ReceiveRemote(context.Background(), incoming, peerID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	output, err = run("messages", "respond", "--from", senderID, "--id", incoming.ID, "--text", "yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answer messaging.Message
+	if err := json.Unmarshal([]byte(output), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer.ReplyTo != incoming.ID || answer.ConversationID != message.ConversationID || answer.RecipientAgentID != recipientID || answer.Type != messaging.Response {
+		t.Fatalf("automatic return routing: %+v", answer)
+	}
+	output, err = run("messages", "get", "--id", incoming.ID)
+	if err != nil || !strings.Contains(output, `"Status":"answered"`) {
+		t.Fatalf("answered question: %s %v", output, err)
+	}
+	if _, err := run("messages", "respond", "--from", senderID, "--id", incoming.ID, "--text", "duplicate"); err == nil {
+		t.Fatal("accepted duplicate CLI response")
+	}
 	for _, args := range [][]string{
-		{"messages", "get"}, {"messages", "inbox"}, {"messages", "history"},
+		{"messages", "respond"}, {"messages", "respond", "--from", senderID, "--id", "missing", "--text", "no"}, {"messages", "get"}, {"messages", "inbox"}, {"messages", "history"},
 		{"messages", "send", "--from", senderID, "--to", recipientID, "--peer", peerID, "--type", "response", "--text", "not supported"},
 		{"messages", "send", "--from", senderID, "--to", recipientID, "--peer", "unknown", "--text", "untrusted"},
 	} {

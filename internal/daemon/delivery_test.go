@@ -240,7 +240,7 @@ func TestRemoteDeliveryBoundary(t *testing.T) {
 		}, status: 410},
 		{name: "unsupported", change: func(message *protocol.Message) { message.ProtocolVersion = 2 }, status: 400},
 		{name: "trailing JSON", suffix: "{}", status: 400},
-		{name: "response deferred", change: func(message *protocol.Message) { message.Type = messaging.Response }, status: 400},
+		{name: "response without link", change: func(message *protocol.Message) { message.Type = messaging.Response }, status: 400},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			message := original
