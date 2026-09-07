@@ -20,7 +20,7 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 		clientName, args = args[0], args[1:]
 	}
 	if clientName == "help" {
-		_, err := fmt.Fprintln(output, "Usage: agent-relay setup [codex|claude] [--home PATH] [--config PATH] [--replace|--remove] [--if-present]\nDetect installed clients and configure the agent-relay stdio MCP server.\n--config requires an explicit client. --replace replaces a conflicting agent-relay entry.")
+		_, err := fmt.Fprintln(output, "Usage: agent-relay setup [codex|claude] [--home PATH] [--config PATH] [--replace|--remove] [--if-present]\nDetect installed clients and install the agent-relay stdio MCP server and skill.\n--config requires an explicit client. --replace replaces a conflicting agent-relay entry.")
 		return err
 	}
 	if clientName != "" && clientName != "codex" && clientName != "claude" {
@@ -98,6 +98,13 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 			setupErrors = errors.Join(setupErrors, fmt.Errorf("%s: %w", client.Name, err))
 			continue
 		}
+		skillPath := setup.SkillPath(env, client.Name)
+		skillState, skillErr := setup.SyncSkill(skillPath, *remove)
+		if skillErr != nil {
+			setupErrors = errors.Join(setupErrors, fmt.Errorf("%s skill: %w", client.Name, skillErr))
+			continue
+		}
+		fmt.Fprintf(output, "%s skill: %s\n  Skill: %s\n", client.Name, skillState, skillPath)
 		if *remove {
 			fmt.Fprintf(output, "%s: matching Agent Relay entry removed or already absent\n", client.Name)
 			continue
@@ -114,6 +121,6 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 	if setupErrors != nil {
 		return setupErrors
 	}
-	_, err = fmt.Fprintln(output, "Restart or reconnect the coding client to load Relay tools. Use the same --home for the daemon. Setup does not start the daemon or change client tool approvals.")
+	_, err = fmt.Fprintln(output, "Restart or reconnect the coding client to load Relay tools and the skill. Use the same --home for the daemon. Setup does not start the daemon or change client tool approvals.")
 	return err
 }

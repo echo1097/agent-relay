@@ -35,6 +35,7 @@ runStep() {
     shift
     printf '  %s...\n' "$stepLabel"
     if "$@" > "$tempDir/step.log" 2>&1; then
+        awk '/^(codex|claude) skill: preserved/ { print; if (getline > 0) print }' "$tempDir/step.log"
         return 0
     else
         stepCode=$?

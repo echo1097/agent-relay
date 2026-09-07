@@ -1,15 +1,15 @@
-# Agent Relay v0.1.4
+# Agent Relay v0.1.5
 
-Devices on your tailnet now pair automatically. Production discovery verifies each Relay node against a visible Tailscale device and saves its device binding. Manual pairing is no longer required when both computers run this version. Explicitly blocked node IDs stay blocked, and existing bindings cannot be replaced automatically by another device.
+Agent Relay now ships a skill for Claude Code and Codex. Curl installation and `agent-relay setup` install the bundled skill in `~/.claude/skills/agent-relay` and `~/.agents/skills/agent-relay`, respectively. Claude's `CLAUDE_CONFIG_DIR` override is respected.
 
-Added `agent-relay dnd`: run it once to disable new incoming messages and questions, and again to resume. It takes effect immediately and survives restarts. Outgoing messages, discovery, existing inbox items, and replies to your outgoing questions remain available. Rejected senders see `DO_NOT_DISTURB` and must resend after DND is turned off.
+The skill teaches agents to discover relevant peers when debugging stalls, publish repository and branch information plus a confirmed Linear issue identifier, and check their inbox at the start and end of each turn while the skill is active. Peer messaging remains subject to user authorization and client permissions. Skills do not wake idle agents.
 
-The installer and diagnostics now explain automatic pairing. `agent-relay status` shows DND state. SQLite migration 6 saves the new setting while preserving existing data.
+Upgrades refresh unchanged managed skills. Customized or different unmanaged skills are preserved with a notice. Uninstall removes unchanged managed copies while retaining custom content and unrelated files. The binary contains the skill, so installation requires no extra skill download; releases also include a checksummed `SKILL.md` asset.
 
-Update both computers:
+Update with:
 
 ```sh
 curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh
 ```
 
-The installer restarts the backend. Reconnect Codex or Claude after upgrading. Use `agent-relay block NODE_ID` to deny a node, or Tailscale access controls to restrict an entire device. Resetting a node with `untrust` allows automatic discovery to trust it again.
+The installer restarts the backend. Restart or reconnect Codex and Claude after upgrading to load the tools and skill.

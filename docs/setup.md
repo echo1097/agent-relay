@@ -57,3 +57,22 @@ Malformed TOML/JSON, duplicate JSON keys, non-object server maps, nonregular fil
 To restore, close the client and copy the printed backup over the config file. To disconnect Relay, remove only its `agent-relay` server entry with the client’s MCP management command or editor. Restart the client afterward. If tools are missing, check the binary still exists, the configured Relay home matches the daemon, and a project or organization policy has not disabled the server.
 
 `setup --if-present` allows an installer to skip undetected clients without failing. `setup --remove --if-present` removes only entries that exactly match the current executable and Relay home, preserving other settings and making a private backup. Changed entries are refused for manual review. It cannot be combined with `--replace`.
+
+## Bundled agent skill
+
+Setup installs the version-matched Agent Relay skill bundled in the executable:
+
+| Client | Skill location |
+| --- | --- |
+| Codex | `~/.agents/skills/agent-relay/SKILL.md` |
+| Claude Code | `~/.claude/skills/agent-relay/SKILL.md` |
+
+`CLAUDE_CONFIG_DIR` moves Claude's skill directory to `$CLAUDE_CONFIG_DIR/skills/agent-relay`. `CODEX_HOME` changes the MCP configuration location but does not move Codex's shared `~/.agents/skills` directory. `--config` only selects the MCP config file; it does not relocate skills. Paths use the current user's home.
+
+The skill guides relevant peer discovery when debugging stalls, work status including repository/branch and Linear issue identifiers, and inbox checks at the start and end of turns while the skill is active. It does not wake idle models or override client permissions.
+
+Setup records the installed content hash in `.agent-relay-sha256` beside the skill. Repeated setup updates an unchanged managed copy. An existing identical draft is adopted. A customized or different unmanaged skill is preserved and reported, even with `--replace`. Move that skill aside and rerun setup if you want the bundled version instead. Do not edit the receipt to force an update.
+
+`setup --remove` removes an unchanged managed skill and its receipt. Customized skills and unrelated files in the directory remain. Empty managed skill directories are removed; the sibling `.agent-relay-skill.lock` is retained for coordination between setup processes. Skill files and receipts must be regular files; a symlink skill directory is preserved. Close clients and avoid editing skills while setup runs.
+
+The source skill is `skills/agent-relay/SKILL.md`. The matching Go string in `internal/setup/skill_content.go` ships it inside standalone binaries; a test prevents releases with mismatched copies. Releases also include `SKILL.md` as a checksummed asset for inspection.

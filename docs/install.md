@@ -38,7 +38,7 @@ Installation doctor reports missing first-time agents, missing clients, missing 
 
 A sibling `.agent-relay-receipt` records the executable checksum, Relay home, and service name. Repeated installation accepts only a regular executable matching this receipt and the same settings. Unrelated executables, symlinks, changed binaries, mismatched homes, and conflicting service/client entries are refused. Installer operations share an exclusive directory lock. An interrupted process can leave the lock directory; confirm no installer is running before removing that empty directory.
 
-Rerun the command to upgrade. Existing identities, messages, and trust remain in the same data directory. The service installation updates its private binary and restarts the backend. Client configuration uses the stable executable path and keeps its existing safe-backup behavior. Reconnect MCP clients after upgrades to load the new executable.
+Rerun the command to upgrade. Existing identities, messages, and trust remain in the same data directory. The service installation updates its private binary and restarts the backend. Client configuration uses the stable executable path and keeps its existing safe-backup behavior. Setup also installs or updates the bundled skill for each detected client, preserving customized skills. Reconnect MCP clients after upgrades to load the new executable and skill.
 
 Downloads require HTTPS and an exact unique SHA-256 manifest entry before execution. Checksums detect corrupt or substituted downloads relative to the manifest; they are not an independent signature if the GitHub release itself is compromised. Releases are prepared as drafts and published only after all four binaries and the manifest are uploaded.
 
@@ -50,7 +50,7 @@ Installation is a sequence of recoverable steps, not a transaction across client
 curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh -s -- --uninstall
 ```
 
-Supply the same bin directory, Relay home, service name, and client environment overrides used during installation. Uninstall needs no release download, Tailscale connection, or build tools. It verifies the local receipt before executing the binary, removes matching MCP entries with private backups, stops/uninstalls the named service, and removes only the installer-managed executable and receipt. A modified MCP entry is refused for manual review, preserving the executable and service for recovery. Other servers and client settings remain intact. A repeated uninstall is harmless.
+Supply the same bin directory, Relay home, service name, and client environment overrides used during installation. Uninstall needs no release download, Tailscale connection, or build tools. It verifies the local receipt before executing the binary, removes matching MCP entries with private backups and unchanged managed skills, stops/uninstalls the named service, and removes only the installer-managed executable and receipt. A modified MCP entry is refused for manual review, preserving the executable and service for recovery. Other servers and client settings remain intact. A repeated uninstall is harmless.
 
 Databases, node identities, messages, trust, logs, previous service binaries, backups, and lock files are deliberately retained. Custom client files configured outside the detected CODEX_HOME/CLAUDE_CONFIG_DIR paths require manual removal of their Relay entry. Reconnect clients after uninstall. See [service locations and recovery](services.md) and [client backup behavior](setup.md).
 
