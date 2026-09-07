@@ -35,11 +35,20 @@ func TestSetupCLI(t *testing.T) {
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Fatal("setup did not install the skill", err)
 	}
+	instructionPath := filepath.Join(root, ".claude", "CLAUDE.md")
+	instructions, err := os.ReadFile(instructionPath)
+	if err != nil || !strings.Contains(string(instructions), skillPath) {
+		t.Fatal("setup did not install startup instructions", err)
+	}
 	if err := Run(context.Background(), append(args, "--remove"), &output, &output, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
 		t.Fatal("setup removal left the managed skill", err)
+	}
+	instructions, err = os.ReadFile(instructionPath)
+	if err != nil || len(instructions) != 0 {
+		t.Fatal("setup removal left startup instructions", err)
 	}
 	for _, badArgs := range [][]string{{"setup", "wrong"}, {"setup", "--config", configPath}, {"setup", "codex", "extra"}} {
 		if err := Run(context.Background(), badArgs, &output, &output, "test"); err == nil {

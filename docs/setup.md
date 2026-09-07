@@ -76,3 +76,18 @@ Setup records the installed content hash in `.agent-relay-sha256` beside the ski
 `setup --remove` removes an unchanged managed skill and its receipt. Customized skills and unrelated files in the directory remain. Empty managed skill directories are removed; the sibling `.agent-relay-skill.lock` is retained for coordination between setup processes. Skill files and receipts must be regular files; a symlink skill directory is preserved. Close clients and avoid editing skills while setup runs.
 
 The source skill is `skills/agent-relay/SKILL.md`. The matching Go string in `internal/setup/skill_content.go` ships it inside standalone binaries; a test prevents releases with mismatched copies. Releases also include `SKILL.md` as a checksummed asset for inspection.
+
+## Startup instructions
+
+Setup also adds a short marked Agent Relay section to the instructions the client reads when a session starts:
+
+| Client | Default instruction file |
+| --- | --- |
+| Codex | `~/.codex/AGENTS.md`, or an existing nonempty `~/.codex/AGENTS.override.md` when it takes precedence |
+| Claude Code | `~/.claude/CLAUDE.md` |
+
+`CODEX_HOME` and `CLAUDE_CONFIG_DIR` relocate the corresponding instruction files. `--config` only selects the MCP configuration file. The startup section points to the installed skill and asks the agent to read it before working on its first turn, then check its inbox at the start and end of each turn. It leaves client approvals unchanged and tells agents to continue normally if Relay is unavailable. This improves skill discovery; it is model guidance, not a deterministic hook.
+
+Existing instructions outside the marked section are preserved byte for byte. Changes use the same private backups, file checks, and atomic writes as MCP setup. Repeated setup does not duplicate the section. Treat the marked section as installer-managed and put personal instructions outside it; setup can refresh its contents. Incomplete or duplicate markers are refused for manual review rather than guessed at.
+
+Removal deletes only the marked section, including in both possible Codex global instruction files, preserving other instructions. Instruction files, backups, and lock files remain. Restart the client or start a new session to load the startup guidance.

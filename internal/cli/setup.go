@@ -105,6 +105,10 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 			continue
 		}
 		fmt.Fprintf(output, "%s skill: %s\n  Skill: %s\n", client.Name, skillState, skillPath)
+		if err := syncStartup(env, client.Name, skillPath, *remove, output); err != nil {
+			setupErrors = errors.Join(setupErrors, fmt.Errorf("%s startup instructions: %w", client.Name, err))
+			continue
+		}
 		if *remove {
 			fmt.Fprintf(output, "%s: matching Agent Relay entry removed or already absent\n", client.Name)
 			continue
@@ -123,4 +127,33 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 	}
 	_, err = fmt.Fprintln(output, "Restart or reconnect the coding client to load Relay tools and the skill. Use the same --home for the daemon. Setup does not start the daemon or change client tool approvals.")
 	return err
+}
+
+func syncStartup(env setup.Environment, clientName, skillPath string, remove bool, output io.Writer) error {
+	paths, err := setup.InstructionPaths(env, clientName)
+	if err != nil {
+		return err
+	}
+	if !remove {
+		path, err := setup.InstructionPath(env, clientName)
+		if err != nil {
+			return err
+		}
+		paths = []string{path}
+	}
+	for _, path := range paths {
+		result, err := setup.SyncInstructions(path, skillPath, remove)
+		if result.Backup != "" {
+			fmt.Fprintf(output, "%s instructions backup: %s\n", clientName, result.Backup)
+		}
+		if err != nil {
+			return err
+		}
+		state := "up to date"
+		if remove {
+			state = "removed or already absent"
+		}
+		fmt.Fprintf(output, "%s startup instructions: %s\n  Instructions: %s\n", clientName, state, path)
+	}
+	return nil
 }
