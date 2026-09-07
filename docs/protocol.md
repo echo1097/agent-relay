@@ -1,6 +1,6 @@
 # HTTP protocol foundation
 
-The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Regular-message/question/response delivery and configured peer trust are implemented; MCP and full trust management remain pending.
+The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Regular-message/question/response delivery and persistent peer trust are implemented; MCP remains pending. See [trust enforcement](trust.md) for HTTP 403 `NODE_NOT_TRUSTED` behavior.
 
 ## Listener
 

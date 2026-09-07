@@ -148,3 +148,24 @@ func (store *Store) QueueAuthorized(ctx context.Context, message messaging.Messa
 	}
 	return store.insertMessage(ctx, message, now, false, peerID, deadline, true)
 }
+
+func (store *Store) GetDelivery(ctx context.Context, messageID string) (*Delivery, error) {
+	var item Delivery
+	var nextAt, deadline string
+	err := store.db.QueryRowContext(ctx, `SELECT message_id, node_id, attempts, next_attempt_at, deadline, last_error FROM outbox WHERE message_id = ?`, messageID).Scan(&item.MessageID, &item.NodeID, &item.Attempts, &nextAt, &deadline, &item.LastError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.NextAttemptAt, err = time.Parse(time.RFC3339Nano, nextAt)
+	if err != nil {
+		return nil, err
+	}
+	item.Deadline, err = time.Parse(time.RFC3339Nano, deadline)
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
+}

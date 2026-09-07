@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-relay/internal/messaging"
+	"agent-relay/internal/storage"
 	"agent-relay/internal/transport"
 )
 
@@ -84,7 +85,19 @@ func runMessages(ctx context.Context, service *transport.Service, options *messa
 		if options.id == "" {
 			return errors.New("--id is required")
 		}
-		result, err = service.Store.GetMessage(ctx, options.id)
+		var message messaging.Message
+		message, err = service.Store.GetMessage(ctx, options.id)
+		if err != nil {
+			return err
+		}
+		delivery, deliveryErr := service.Store.GetDelivery(ctx, options.id)
+		if deliveryErr != nil {
+			return deliveryErr
+		}
+		result = struct {
+			messaging.Message
+			Delivery *storage.Delivery `json:"Delivery,omitempty"`
+		}{Message: message, Delivery: delivery}
 	case "inbox":
 		if options.agent == "" {
 			return errors.New("--agent is required")

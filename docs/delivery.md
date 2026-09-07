@@ -4,26 +4,11 @@
 
 The local `messages send` command persists a message and its outbox entry atomically, then returns immediately. A running daemon picks it up within approximately 250 ms when the worker is idle. The command also works while the daemon is stopped. It never calls an AI provider. `messages get`, `inbox`, and `history` inspect local storage. These commands currently return internal Go field names; the network uses the versioned JSON representation below.
 
-## Temporary explicit trust
+## Persistent explicit trust
 
-Configure each node with its peer's stable Relay node ID, Tailscale IPv4 address, and listening port:
+Run `agent-relay trust NODE_ID` on both nodes before communicating. Unknown and blocked peers receive HTTP 403 `NODE_NOT_TRUSTED`. Trust decisions live in SQLite and bind stable Relay IDs to Tailscale device identities. They update without a daemon restart. Discovery never grants trust.
 
-```toml
-[[trusted_peers]]
-node_id = "node_019a84fc-1b72-7000-8000-000000000001"
-address = "100.64.0.2"
-port = 47832
-
-[messages]
-request_expiration_hours = 24
-retry_interval_seconds = 900
-```
-
-An empty allowlist rejects all message traffic. The receiver checks the claimed node ID against the connection's actual source IP. Forwarding headers are ignored. The sender binds its connection to its configured local listening IP and sends only to configured peer addresses. No DNS, HTTP proxy, or redirect routing is used. A peer acknowledgment must name the expected node and message.
-
-This is temporary address-pinned trust over Tailscale's authenticated network, with stable node IDs stored alongside conversations. The first exchange pins the remote agent ID to the trusted node; another trusted node cannot take over that agent or conversation. Changing a peer's address requires a config change and daemon restart. Discovery does not grant trust or change message routes. Full trust commands, blocking management, and Tailscale identity lookup remain deferred. Existing public hello and agent-list endpoints retain their discovery behavior.
-
-Development mode accepts loopback addresses only. Loopback trust is for testing: other local processes can claim configured node IDs. It does not authenticate individual local processes. Production accepts only Tailscale IPv4 peer addresses. Do not put a forwarding proxy between nodes.
+Existing `[[trusted_peers]]` entries provide optional route hints only. They no longer authorize communication. Start both daemons, then enroll each peer with the trust command. See [trust setup, enforcement, development mode, and upgrade behavior](trust.md).
 
 ## Wire format
 

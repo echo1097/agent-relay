@@ -58,7 +58,7 @@ func TestTrustCommands(t *testing.T) {
 			t.Fatalf("%s: %s %v", command, output, err)
 		}
 	}
-	for _, args := range [][]string{{"trust", "127.0.0.1"}, {"block"}, {"trust", "missing"}, {"trust", peerID, "extra"}} {
+	for _, args := range [][]string{{"trust", "127.0.0.1"}, {"block"}, {"trust", "missing"}, {"trust", peerID, "extra"}, {"trust", peerID, peerID}} {
 		if _, err := run(args...); err == nil {
 			t.Fatalf("accepted %v", args)
 		}

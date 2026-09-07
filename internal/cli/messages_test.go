@@ -69,6 +69,10 @@ func TestMessageCommands(t *testing.T) {
 	if err != nil || strings.TrimSpace(output) != "[]" {
 		t.Fatalf("outgoing leaked into inbox: %s %v", output, err)
 	}
+	output, err = run("messages", "get", "--id", message.ID)
+	if err != nil || !strings.Contains(output, `"Delivery":`) || !strings.Contains(output, `"LastError":`) {
+		t.Fatalf("missing delivery diagnostics: %s %v", output, err)
+	}
 	store, err := storage.Open(context.Background(), filepath.Join(home, "relay.db"))
 	if err != nil {
 		t.Fatal(err)

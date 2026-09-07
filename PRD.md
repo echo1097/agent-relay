@@ -2,9 +2,9 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, including response delivery, the required four-message conversation test, and a completed two-process CLI check.
+Last reviewed: September 6, 2026, including persistent trust, authorization enforcement, and a successful machine A/B trust test over Tailscale.
 
-The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, and bidirectional peer message delivery with responses and retries. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, bidirectional peer message delivery with responses and retries, and the V0.1 trust model. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
 | Area | Current status |
 | --- | --- |
@@ -13,7 +13,7 @@ The repository currently implements the project foundation, local agent registry
 | Phase 3: Inter-node transport | HTTP foundation and message/question/response delivery implemented, with durable acknowledgments and retries. |
 | Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery and cache, and initial diagnostics. Real-tailnet validation remains outstanding. |
 | Phases 5 and 6: Messaging and responses | Durable inboxes, ordered history, response linkage, answered timestamps, follow-ups, idempotency, expiration, HTTP transport, and CLI messaging implemented. The section 56 conversation test passes without MCP. MCP remains pending. |
-| Phase 7: Trust | Temporary configured node/address trust is enforced for message delivery. Full trust management remains pending. |
+| Phase 7: Trust | Implemented: SQLite unknown/trusted/blocked states, stable Tailscale device bindings, live request and retry enforcement, CLI trust/block/inspection, and diagnostics. |
 | Phase 8: MCP | Not implemented. |
 | Phases 9 and 10: Services and installer | Not implemented. |
 | Phase 11: Hardening | Some foundational validation, timeouts, and shutdown handling exist; the full phase remains pending. |
@@ -58,7 +58,7 @@ Registration and metadata replacement clear omitted metadata fields. Callers mus
 * Five-second request contexts and header-read timeouts, ten-second read/write timeouts, a thirty-second idle timeout, and a 16 KiB header limit.
 * Graceful HTTP shutdown with up to five seconds for active requests before remaining connections are closed, followed by local presence cleanup.
 
-Tailscale-only production binding and outgoing hello probes are implemented. Message delivery now enforces temporary configured node/address trust. No agent mutation endpoint or MCP implementation exists yet. Conversations are available through local storage APIs. See [HTTP protocol behavior and examples](docs/protocol.md).
+Tailscale-only production binding and outgoing hello probes are implemented. Message delivery enforces persistent peer trust with stable Tailscale device verification. No agent mutation endpoint or MCP implementation exists yet. Conversations are available through local storage APIs. See [HTTP protocol behavior and examples](docs/protocol.md).
 
 ### Built: Tailscale integration and peer discovery
 
@@ -73,7 +73,7 @@ Tailscale-only production binding and outgoing hello probes are implemented. Mes
 * `peers` reads cached discovery state. `status` includes current local Tailscale information and cached peers. `doctor` checks Tailscale, probes the local listener and remote candidates, and provides remediation hints with a failing exit status when required checks fail.
 * Discovery cancellation and worker completion are awaited during daemon shutdown.
 
-All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation and MCP remain pending; message transport now uses explicit configured peers and trust. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
+All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation and MCP remain pending; message transport uses explicit SQLite trust with stable Tailscale device bindings. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
 
 ### Built: local conversations and durable inboxes
 
@@ -89,19 +89,19 @@ HTTP delivery, CLI messaging, retry scheduling, and daemon expiration scheduling
 ### Built: peer message delivery
 
 * Versioned `POST /v1/messages` accepts regular messages and questions; `POST /v1/responses` accepts linked responses after sender trust, recipient, and original question validation.
-* Temporary explicit configuration pins stable peer node IDs to Tailscale IPv4 addresses, with loopback allowed in development only. Discovery grants no trust.
+* Persistent SQLite trust pins stable peer node IDs to stable Tailscale device identities. Address changes are resolved from current Tailscale status. Explicit loopback development bindings are separate. Discovery grants no trust.
 * Conversations, remote agent ownership, inbox messages, and duplicate markers commit before acknowledgment. Exact retries preserve the original receipt, including after expiration.
 * The durable outbox survives restarts and tracks attempts, deadlines, next retry times, and failure reasons. Temporary failures follow the section 41 retry schedule, then a configurable slower interval.
 * Five-second outbound request limits, bounded responses, rejected redirects/proxies, terminal rejection handling, and daemon expiration sweeps.
 * Local `messages send`, `respond`, `get`, `inbox`, and `history` commands. Responses derive the return route from the original question; existing conversation IDs require matching participants and peer bindings. MCP remains deferred.
 
-The manual two-terminal procedure passed on localhost: A sent a question to B, B sent a regular message to A, and an outgoing follow-up remained `pending_delivery` while B was stopped before delivering automatically after restart. B retained exactly three ordered messages, readable from a fresh CLI process after both daemons stopped. Both test daemons were shut down. See [peer delivery and the recorded procedure](docs/delivery.md). Live two-machine Tailscale delivery remains unverified.
+The manual two-terminal procedure passed on localhost: A sent a question to B, B sent a regular message to A, and an outgoing follow-up remained `pending_delivery` while B was stopped before delivering automatically after restart. B retained exactly three ordered messages, readable from a fresh CLI process after both daemons stopped. Both test daemons were shut down. See [peer delivery and the recorded procedure](docs/delivery.md). Live two-machine Tailscale delivery and trust changes passed on September 6, 2026; see [trust verification](docs/trust.md#verification).
 
 ### Current schema and verification
 
-Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. Migration 3 creates `conversations`, `messages`, and `processed_messages`, with constraints, immutable-content triggers, and lookup indexes. The migration runner records applied versions in `schema_migrations`. Migration 4 adds conversation peer bindings, remote agent ownership, and the durable outbox. Peer discovery uses `peers.json`.
+Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. Migration 3 creates `conversations`, `messages`, and `processed_messages`, with constraints, immutable-content triggers, and lookup indexes. The migration runner records applied versions in `schema_migrations`. Migration 4 adds conversation peer bindings, remote agent ownership, and the durable outbox. Migration 5 adds `peer_trust`, including constrained unknown/trusted/blocked states and stable device bindings. Peer discovery uses `peers.json` and records unknown peers without changing decisions.
 
-The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between two Tailscale machines has not been verified.
+The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between machine A and machine B passed during the trust verification, including doctor checks.
 
 The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The section 56 end-to-end conversation test passes using internal service calls and real HTTP between two localhost daemons, with a fake tailnet for discovery. It verifies agent listing, both question/answer rounds, response mapping, answered timestamps, conversation update time, duplicate handling, and four ordered messages after reopening both databases. MCP is deliberately not involved. A real two-process CLI exchange also passed; see [the complete manual procedure](docs/conversation-test.md). The project is not yet a complete V0.1 release.
 
@@ -1372,7 +1372,7 @@ Do not require constant updates for every small action.
 
 # 33. Trust Model
 
-Current implementation: `[[trusted_peers]]` configuration explicitly pairs stable Relay node IDs with peer addresses and ports. Message receipt checks the claimed node ID against the connection source IP; discovery grants no trust. Remote agent and conversation ownership are persisted. Full trust/block management and CLI commands below remain pending. Loopback mode is for development and does not authenticate individual local processes.
+Current implementation: SQLite stores unknown/trusted/blocked decisions by stable Relay node ID. Production enrollment verifies hello and pins the stable Tailscale device ID. Receipt checks the node header, current trust, and actual connection source against that device in local Tailscale status. Outgoing attempts also verify the destination Relay identity. Trust changes take effect without restart; message transactions recheck trust before persistence. The CLI provides trust, block, untrust, and trust-state commands, with trust output in peers, status, and doctor. Public discovery remains available. Legacy `trusted_peers` entries provide enrollment routes only. See [trust behavior and upgrade instructions](docs/trust.md).
 
 Membership in the same tailnet should not automatically imply unlimited Agent Relay access.
 
@@ -1775,7 +1775,7 @@ Should display recent conversations.
 
 # 44. Doctor Command
 
-Current implementation: initial checks cover Tailscale installation, daemon reachability, connection and IPv4, the local Agent Relay listener and identity, and compatible remote peers. MCP configuration checks and the full diagnostic set illustrated below remain pending.
+Current implementation: initial checks cover Tailscale installation, daemon reachability, connection and IPv4, the local Agent Relay listener and identity, and compatible remote peers. SQLite peer trust states and enrollment guidance are included. MCP configuration checks and the full diagnostic set illustrated below remain pending.
 
 `agent-relay doctor` is required.
 
@@ -1883,7 +1883,7 @@ or user-local equivalent.
 
 # 47. Configuration
 
-The configuration file is optional. Production defaults to `network.bind_address = "tailscale"` and `network.development = false`. Discovery and messaging settings are active. `messages.request_expiration_hours` controls question expiration and ordinary-message outbox lifetime; `messages.retry_interval_seconds` controls the slower retry interval after the initial schedule. Configure `[[trusted_peers]]` entries with `node_id`, `address`, and `port` to enable peer messaging. An empty trust list rejects incoming messages and outgoing queue requests. For local testing, set `network.development = true` and `network.bind_address = "127.0.0.1"`. Restart the daemon after configuration or binary changes.
+The configuration file is optional. Production defaults to `network.bind_address = "tailscale"` and `network.development = false`. Discovery and messaging settings are active. `messages.request_expiration_hours` controls question expiration and ordinary-message outbox lifetime; `messages.retry_interval_seconds` controls the slower retry interval after the initial schedule. Run `agent-relay trust NODE_ID` to enable peer messaging. Optional `[[trusted_peers]]` entries with `node_id`, `address`, and `port` supply enrollment routes only. Without an explicit SQLite trust decision, incoming messages and outgoing queue requests are rejected. For local testing, set `network.development = true` and `network.bind_address = "127.0.0.1"`. Restart the daemon after configuration or binary changes.
 
 Example:
 
@@ -2426,7 +2426,7 @@ Abstract the discovery provider.
 
 ## Phase 5: Messaging
 
-Status: local storage, HTTP delivery, acknowledgments, configured peer trust, retries, expiration scheduling, and CLI messaging are implemented for regular messages, questions, and responses.
+Status: local storage, HTTP delivery, acknowledgments, persistent peer trust, retries, expiration scheduling, and CLI messaging are implemented for regular messages, questions, and responses.
 
 Build:
 
@@ -2456,7 +2456,7 @@ At this stage, the complete A ↔ B transport should work through CLI tests.
 
 ## Phase 7: Trust
 
-Status: temporary configured node/address trust is enforced at the message transport boundary. Full trust/block management and CLI trust commands remain pending.
+Status: implemented. SQLite trust states, stable device verification, incoming and outgoing enforcement, CLI commands, diagnostics, and authorization tests are complete. See [trust behavior](docs/trust.md).
 
 Build:
 

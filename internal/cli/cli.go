@@ -109,11 +109,12 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		}
 		return err
 	}
-	if trustCommand && peerValue == "" && flags.NArg() == 1 {
-		peerValue = flags.Arg(0)
-	}
-	if flags.NArg() != 0 && !(trustCommand && flags.NArg() == 1 && peerValue == flags.Arg(0)) {
-		return errors.New("unexpected positional arguments")
+	if flags.NArg() != 0 {
+		if trustCommand && peerValue == "" && flags.NArg() == 1 {
+			peerValue = flags.Arg(0)
+		} else {
+			return errors.New("unexpected positional arguments")
+		}
 	}
 	paths, err := config.Resolve(*home)
 	if err != nil {

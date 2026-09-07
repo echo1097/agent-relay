@@ -130,6 +130,10 @@ func TestQueuedMessageFailsAfterBlock(t *testing.T) {
 	if err != nil || saved.Status != messaging.Failed {
 		t.Fatalf("revoked queue: %+v %v", saved, err)
 	}
+	delivery, err := nodeA.store.GetDelivery(ctx, message.ID)
+	if err != nil || delivery == nil || !strings.Contains(delivery.LastError, "NODE_NOT_TRUSTED") || !strings.Contains(delivery.LastError, "blocked") {
+		t.Fatalf("missing failure reason: %+v %v", delivery, err)
+	}
 	due, err := nodeA.store.DueDeliveries(ctx, time.Now().Add(time.Hour))
 	if err != nil || len(due) != 0 {
 		t.Fatalf("revoked message retried: %+v %v", due, err)

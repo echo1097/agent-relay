@@ -1,5 +1,7 @@
 # Test a complete conversation
 
+Current trust setup: start both daemons, then run `agent-relay trust PEER_NODE_ID --home "$relayHome"` on each machine before following the message steps. Legacy configuration supplies routes only. See [trust setup](trust.md).
+
 This procedure uses the actual CLI and daemon. No MCP or model provider is involved. Run the steps in order, alternating between A and B. Both agents are registered local sessions; you supply their example answers through the CLI.
 
 ## Install on the other test machine
@@ -161,7 +163,7 @@ curl --noproxy '*' --fail --max-time 5 "http://$peerAddress:$peerPort/v1/agents"
 
 Each remote agent list should contain `peerAgent`. For two Tailscale machines, also run `"$relayBin" peers --home "$relayHome"` after up to 15 seconds and confirm the other node is online. Localhost development does not simulate Tailscale peer discovery. The automated test supplies a fake tailnet and performs real HTTP hello probes.
 
-If health fails, inspect `cat "$relayHome/terminal.log"` and check the IP, port, listener, and firewall. If delivery fails, check both trusted node IDs and addresses. Restart after editing configuration. Presence may become offline after 30 seconds without heartbeats; registered offline agents still receive messages.
+If health fails, inspect `cat "$relayHome/terminal.log"` and check the IP, port, listener, and firewall. Before sending, run `agent-relay trust PEER_NODE_ID --home "$relayHome"` on both machines after both daemons are running. If delivery fails, inspect `trust-state` on both machines. Configuration entries alone do not grant trust. Restart after editing configuration. Presence may become offline after 30 seconds without heartbeats; registered offline agents still receive messages.
 
 Define this helper in both terminals. It waits up to 45 seconds for the local persisted status:
 
