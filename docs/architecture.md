@@ -1,8 +1,8 @@
 # Local architecture
 
-The PRD is the source of truth. Phases 1 through 3 are implemented. See [local agents and presence](agents.md) for registry behavior and [HTTP protocol](protocol.md) for the protocol foundation.
+The PRD is the source of truth. Phases 1 through 8 are implemented. See [local agents and presence](agents.md) for registry behavior and [HTTP protocol](protocol.md) for the protocol foundation.
 
-`cmd/agent-relay` establishes signal cancellation and invokes `internal/cli`. The CLI composes configuration, directories, structured logging, storage, the agent registry, and the local daemon lifecycle. The registry uses a small storage interface implemented by SQLite; no transport interfaces exist yet.
+`cmd/agent-relay` establishes signal cancellation and invokes `internal/cli`. The CLI composes configuration, directories, structured logging, storage, the agent registry, and the local daemon lifecycle. The registry uses a small storage interface implemented by SQLite; transport and discovery have injectable network interfaces.
 
 ## Decisions beyond the PRD
 
@@ -19,3 +19,7 @@ The PRD is the source of truth. Phases 1 through 3 are implemented. See [local a
 - The production HTTP listener resolves and binds only to the connected local Tailscale IPv4 address. Explicit development mode allows loopback. `internal/tailscale` wraps the local CLI behind an interface; `internal/discovery` probes compatible hello responses and atomically persists an ephemeral JSON cache, separate from durable SQLite identities. `internal/protocol` defines validated public objects separate from local storage models. The daemon uses only the standard library for HTTP and does not expose agent mutation endpoints.
 
 Tests cover configuration validation, local directory creation, logging levels, command handling, identity persistence, concurrent initialization, migration rollback, future-schema rejection, upgrades from the foundation schema, agent registry operations, and daemon lifecycle.
+
+## MCP boundary
+
+`agent-relay mcp` is a local stdio process for one coding session. It shares the daemon database and existing registry, transport, and storage services, like the CLI; it does not add a network mutation API. The daemon continues to own peer delivery and retries. `internal/relay` supplies shared peer lookup, routing and session ownership checks. `internal/mcp` adapts these services to tool schemas and results using the official Go MCP SDK. Registration follows initialization, heartbeat loops end on disconnect, and metadata updates use one registry storage mutation. No model execution or answer generation occurs in Relay. See [MCP client setup](mcp.md).

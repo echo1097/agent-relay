@@ -191,3 +191,38 @@ func TestSessionIsolation(t *testing.T) {
 		t.Fatal("another session's inbox leaked")
 	}
 }
+
+func TestAutomaticHeartbeatAndResume(t *testing.T) {
+	session := makeSession(t)
+	client, closeClient := connectClient(t, session)
+	defer closeClient()
+	callTool(t, client, "relay.update_status", map[string]any{"status": "busy"}, false)
+	original, err := session.Directory.Registry.Get(context.Background(), session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	active, err := session.Directory.Registry.Get(context.Background(), session.ID())
+	if err != nil || active.Status != agents.Busy || !active.LastSeenAt.After(original.LastSeenAt) {
+		t.Fatalf("scheduled heartbeat: %+v %v", active, err)
+	}
+	closeClient()
+	resumed := &relay.Session{Directory: session.Directory, Delivery: session.Delivery, Registration: agents.Registration{ID: original.ID, DisplayName: "resumed"}}
+	resumedClient, closeResumed := connectClient(t, resumed)
+	defer closeResumed()
+	data := callTool(t, resumedClient, "relay.update_status", map[string]any{}, false)
+	if data["agent_id"] != original.ID {
+		t.Fatal("resume changed identity")
+	}
+	agent, err := resumed.Directory.Registry.Get(context.Background(), original.ID)
+	if err != nil || !agent.RegisteredAt.Equal(original.RegisteredAt) {
+		t.Fatalf("resume changed registration time: %+v %v", agent, err)
+	}
+	distinct := &relay.Session{Directory: session.Directory, Delivery: session.Delivery}
+	distinctClient, closeDistinct := connectClient(t, distinct)
+	defer closeDistinct()
+	other := callTool(t, distinctClient, "relay.update_status", map[string]any{}, false)
+	if other["agent_id"] == original.ID {
+		t.Fatal("independent connection reused an inbox")
+	}
+}

@@ -1,6 +1,6 @@
 # Agent Relay
 
-Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. It now includes [peer message delivery](docs/delivery.md), [persistent peer trust](docs/trust.md), durable outgoing retries, and CLI messaging with linked responses and follow-up conversations. MCP and service installation remain pending.
+Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. It now includes [peer message delivery](docs/delivery.md), [persistent peer trust](docs/trust.md), durable outgoing retries, and CLI messaging with linked responses and follow-up conversations. It includes [MCP tools for coding agents](docs/mcp.md) with automatic session registration. Service installation remains pending.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.
 
@@ -135,7 +135,7 @@ Tailscale must be available through `tailscale` on PATH or the macOS application
 
 Use `agent-relay messages help` for send, respond, get, inbox, and history commands. Run `agent-relay trust NODE_ID` on each receiving machine before sending; see [trust setup and upgrade instructions](docs/trust.md). The daemon delivers queued regular messages, questions, and responses, persists incoming messages before acknowledgment, and retries temporary failures after restart. See [delivery behavior and the two-terminal test procedure](docs/delivery.md). Restart running daemons after installing this build.
 
-For the full A → B → A → B → A flow, follow the [two-terminal or two-machine conversation test](docs/conversation-test.md), including installation on another test machine. The mandatory PRD end-to-end test now covers all four messages and durable history on both nodes without MCP.
+For the full A → B → A → B → A flow, follow the [two-terminal or two-machine conversation test](docs/conversation-test.md), including installation on another test machine. Automated tests cover all four messages and durable history through internal services and through MCP tools.
 
 ## Peer trust
 
@@ -149,3 +149,7 @@ agent-relay untrust NODE_ID
 ```
 
 Unique peer names are also accepted. Decisions take effect without a restart. Existing `trusted_peers` configuration now supplies enrollment routes only; run `trust` once after upgrading and restart the old daemon to load this build. See [the full trust model](docs/trust.md).
+
+## MCP clients
+
+Configure a generic stdio MCP client to launch `agent-relay mcp --home /absolute/path/to/.agent-relay`. Use the same data directory as your daemon. Registration and heartbeats happen automatically; the eight `relay.*` tools expose discovery, messaging, inboxes, conversation history and status. See [connection configuration, tool inputs, polling and reconnect behavior](docs/mcp.md). Restart your backend daemon and reconnect MCP clients after installing this build.

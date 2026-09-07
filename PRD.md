@@ -2,9 +2,9 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, including persistent trust, authorization enforcement, and a successful machine A/B trust test over Tailscale.
+Last reviewed: September 6, 2026, including persistent trust, authorization enforcement, and successful MCP machine A/B testing over Tailscale.
 
-The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, bidirectional peer message delivery with responses and retries, and the V0.1 trust model. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, bidirectional peer message delivery with responses and retries, the V0.1 trust model, and stdio MCP tools with automatic session registration. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
 | Area | Current status |
 | --- | --- |
@@ -12,9 +12,9 @@ The repository currently implements the project foundation, local agent registry
 | Phase 2: Local agent registry | Implemented. Busy and idle are explicitly set by callers; automatic idle detection is not implemented. |
 | Phase 3: Inter-node transport | HTTP foundation and message/question/response delivery implemented, with durable acknowledgments and retries. |
 | Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery and cache, and initial diagnostics. Real-tailnet validation remains outstanding. |
-| Phases 5 and 6: Messaging and responses | Durable inboxes, ordered history, response linkage, answered timestamps, follow-ups, idempotency, expiration, HTTP transport, and CLI messaging implemented. The section 56 conversation test passes without MCP. MCP remains pending. |
+| Phases 5 and 6: Messaging and responses | Durable inboxes, ordered history, response linkage, answered timestamps, follow-ups, idempotency, expiration, HTTP transport, and CLI messaging implemented. The section 56 conversation test passes both through internal APIs and through MCP. |
 | Phase 7: Trust | Implemented: SQLite unknown/trusted/blocked states, stable Tailscale device bindings, live request and retry enforcement, CLI trust/block/inspection, and diagnostics. |
-| Phase 8: MCP | Not implemented. |
+| Phase 8: MCP | Implemented: eight stdio tools, automatic registration, heartbeats, session access checks, peer lookup, and MCP conversation tests. |
 | Phases 9 and 10: Services and installer | Not implemented. |
 | Phase 11: Hardening | Some foundational validation, timeouts, and shutdown handling exist; the full phase remains pending. |
 
@@ -58,7 +58,7 @@ Registration and metadata replacement clear omitted metadata fields. Callers mus
 * Five-second request contexts and header-read timeouts, ten-second read/write timeouts, a thirty-second idle timeout, and a 16 KiB header limit.
 * Graceful HTTP shutdown with up to five seconds for active requests before remaining connections are closed, followed by local presence cleanup.
 
-Tailscale-only production binding and outgoing hello probes are implemented. Message delivery enforces persistent peer trust with stable Tailscale device verification. No agent mutation endpoint or MCP implementation exists yet. Conversations are available through local storage APIs. See [HTTP protocol behavior and examples](docs/protocol.md).
+Tailscale-only production binding and outgoing hello probes are implemented. Message delivery enforces persistent peer trust with stable Tailscale device verification. No HTTP agent mutation endpoint is exposed; local stdio MCP clients use the internal registry services. Conversations are available through local storage APIs. See [HTTP protocol behavior and examples](docs/protocol.md).
 
 ### Built: Tailscale integration and peer discovery
 
@@ -73,7 +73,7 @@ Tailscale-only production binding and outgoing hello probes are implemented. Mes
 * `peers` reads cached discovery state. `status` includes current local Tailscale information and cached peers. `doctor` checks Tailscale, probes the local listener and remote candidates, and provides remediation hints with a failing exit status when required checks fail.
 * Discovery cancellation and worker completion are awaited during daemon shutdown.
 
-All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation and MCP remain pending; message transport uses explicit SQLite trust with stable Tailscale device bindings. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
+All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation is available through the shared MCP directory; message transport uses explicit SQLite trust with stable Tailscale device bindings. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
 
 ### Built: local conversations and durable inboxes
 
@@ -84,7 +84,7 @@ All nodes must use the same configured port for automatic discovery. Large tailn
 * Lifecycle transitions, response links with atomic question completion, default 24-hour question deadlines, and an explicit expiration sweep API.
 * Tests for concurrent duplicates, rollback, canceled operations, restart persistence, migration upgrades, inbox filtering, ordering, and expiration boundaries.
 
-HTTP delivery, CLI messaging, retry scheduling, and daemon expiration scheduling now build on this storage layer. MCP remains pending. Internal callers supply configured deadlines and invoke the expiration sweep before reads when needed. See [local messaging API behavior](docs/messaging.md).
+HTTP delivery, CLI messaging, retry scheduling, and daemon expiration scheduling now build on this storage layer. MCP now exposes these operations. Internal callers supply configured deadlines and invoke the expiration sweep before reads when needed. See [local messaging API behavior](docs/messaging.md).
 
 ### Built: peer message delivery
 
@@ -93,9 +93,19 @@ HTTP delivery, CLI messaging, retry scheduling, and daemon expiration scheduling
 * Conversations, remote agent ownership, inbox messages, and duplicate markers commit before acknowledgment. Exact retries preserve the original receipt, including after expiration.
 * The durable outbox survives restarts and tracks attempts, deadlines, next retry times, and failure reasons. Temporary failures follow the section 41 retry schedule, then a configurable slower interval.
 * Five-second outbound request limits, bounded responses, rejected redirects/proxies, terminal rejection handling, and daemon expiration sweeps.
-* Local `messages send`, `respond`, `get`, `inbox`, and `history` commands. Responses derive the return route from the original question; existing conversation IDs require matching participants and peer bindings. MCP remains deferred.
+* Local `messages send`, `respond`, `get`, `inbox`, and `history` commands. Responses derive the return route from the original question; existing conversation IDs require matching participants and peer bindings. MCP now wraps these services.
 
 The manual two-terminal procedure passed on localhost: A sent a question to B, B sent a regular message to A, and an outgoing follow-up remained `pending_delivery` while B was stopped before delivering automatically after restart. B retained exactly three ordered messages, readable from a fresh CLI process after both daemons stopped. Both test daemons were shut down. See [peer delivery and the recorded procedure](docs/delivery.md). Live two-machine Tailscale delivery and trust changes passed on September 6, 2026; see [trust verification](docs/trust.md#verification).
+
+### Built: MCP integration
+
+* `agent-relay mcp` serves all eight required tools over stdio using the official Go MCP SDK, with protocol negotiation, schemas, structured results and error reporting.
+* One local process per coding-agent session, automatic registration from initialization, optional `--agent-id` resume, periodic heartbeats, and offline marking on disconnect.
+* Session-bound sender, inbox, status and conversation access. The local process shares the daemon database through existing services; no new HTTP mutation endpoint is required.
+* Shared local/remote directory with validated public metadata, current Tailscale device routing, partial discovery results, trust indicators, and session-cached routes for offline queueing.
+* Durable question, message and response queueing through existing transport services. The daemon retains responsibility for delivery and retries. Relay never invokes a model or generates an answer.
+* Polling inboxes, explicit read marking, chronological histories, response linkage and partial metadata updates. Runtime wake-up notifications remain deferred.
+* MCP lifecycle, schema, privacy, session isolation and two-daemon conversation tests. Generic client setup, reconnection and current limits are documented in [MCP integration](docs/mcp.md).
 
 ### Current schema and verification
 
@@ -103,7 +113,7 @@ Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 
 
 The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between machine A and machine B passed during the trust verification, including doctor checks.
 
-The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The section 56 end-to-end conversation test passes using internal service calls and real HTTP between two localhost daemons, with a fake tailnet for discovery. It verifies agent listing, both question/answer rounds, response mapping, answered timestamps, conversation update time, duplicate handling, and four ordered messages after reopening both databases. MCP is deliberately not involved. A real two-process CLI exchange also passed; see [the complete manual procedure](docs/conversation-test.md). The project is not yet a complete V0.1 release.
+The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The section 56 end-to-end conversation test passes using internal service calls and real HTTP between two localhost daemons, with a fake tailnet for discovery. It verifies agent listing, both question/answer rounds, response mapping, answered timestamps, conversation update time, duplicate handling, and four ordered messages after reopening both databases. That original test uses internal APIs; the additional MCP end-to-end test drives discovery and both answer rounds through MCP tools. A real two-process CLI exchange also passed; see [the complete manual procedure](docs/conversation-test.md). The project is not yet a complete V0.1 release.
 
 ---
 
@@ -2441,7 +2451,7 @@ idempotency
 
 ## Phase 6: Responses
 
-Status: response linkage, atomic question completion, answered timestamps, conversation updates, ordered history, automatic return routing, follow-up questions, response transport, and CLI commands are implemented. The required four-message test passes, including database restart checks. MCP remains pending.
+Status: response linkage, atomic question completion, answered timestamps, conversation updates, ordered history, automatic return routing, follow-up questions, response transport, and CLI commands are implemented. The required four-message test passes, including database restart checks. An additional MCP end-to-end test covers the same exchange through the agent-facing tools.
 
 Build:
 
@@ -2468,6 +2478,8 @@ CLI trust commands
 ```
 
 ## Phase 8: MCP
+
+Status: implemented with local stdio sessions, automatic initialization registration, heartbeats, shared service calls, and tests. See [MCP setup and behavior](docs/mcp.md).
 
 Expose:
 
