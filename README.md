@@ -1,6 +1,6 @@
 # Agent Relay
 
-Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection and peer discovery. MCP, messaging, conversations, trust enforcement, and service installation remain pending.
+Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. Remote message delivery, MCP, trust enforcement, and service installation remain pending.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.
 

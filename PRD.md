@@ -2,9 +2,9 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, against implementation commit `88e3580`.
+Last reviewed: September 6, 2026, against implementation commit `f08d85f`.
 
-The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, and Tailscale integration with peer discovery. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, and local conversation and messaging persistence. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
 | Area | Current status |
 | --- | --- |
@@ -12,7 +12,7 @@ The repository currently implements the project foundation, local agent registry
 | Phase 2: Local agent registry | Implemented. Busy and idle are explicitly set by callers; automatic idle detection is not implemented. |
 | Phase 3: Inter-node transport | HTTP foundation implemented. Message serialization and message transport remain deferred. |
 | Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery and cache, and initial diagnostics. Real-tailnet validation remains outstanding. |
-| Phases 5 and 6: Messaging and responses | Not implemented. |
+| Phases 5 and 6: Messaging and responses | Local models, durable inboxes, history, idempotency, read tracking, responses, and expiration APIs implemented. Remote delivery and agent-facing commands remain pending. |
 | Phase 7: Trust | Peer trust management and enforcement are not implemented. |
 | Phase 8: MCP | Not implemented. |
 | Phases 9 and 10: Services and installer | Not implemented. |
@@ -58,7 +58,7 @@ Registration and metadata replacement clear omitted metadata fields. Callers mus
 * Five-second request contexts and header-read timeouts, ten-second read/write timeouts, a thirty-second idle timeout, and a 16 KiB header limit.
 * Graceful HTTP shutdown with up to five seconds for active requests before remaining connections are closed, followed by local presence cleanup.
 
-Tailscale-only production binding and outgoing hello probes are implemented. Peer authentication and trust enforcement remain pending. No agent mutation endpoint, conversation, message transport, or MCP implementation exists yet. See [HTTP protocol behavior and examples](docs/protocol.md).
+Tailscale-only production binding and outgoing hello probes are implemented. Peer authentication and trust enforcement remain pending. No agent mutation endpoint, message transport, or MCP implementation exists yet. Conversations are available through local storage APIs. See [HTTP protocol behavior and examples](docs/protocol.md).
 
 ### Built: Tailscale integration and peer discovery
 
@@ -73,11 +73,22 @@ Tailscale-only production binding and outgoing hello probes are implemented. Pee
 * `peers` reads cached discovery state. `status` includes current local Tailscale information and cached peers. `doctor` checks Tailscale, probes the local listener and remote candidates, and provides remediation hints with a failing exit status when required checks fail.
 * Discovery cancellation and worker completion are awaited during daemon shutdown.
 
-All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation, trust enforcement, messaging, and MCP are not part of this implementation. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
+All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation, trust enforcement, remote messaging, and MCP are not part of this implementation. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
+
+### Built: local conversations and durable inboxes
+
+* Two fixed participants per conversation, with a registered local agent and a remote agent ID.
+* Message, question, and response types; UUIDv7 ID generation; immutable content and globally unique message IDs.
+* Atomic incoming message and processed-message persistence before returning success. Exact retries preserve state; conflicting ID reuse is rejected.
+* Durable inboxes, explicit read tracking, chronological history with ID tie-breaking, and message lookup.
+* Lifecycle transitions, response links with atomic question completion, default 24-hour question deadlines, and an explicit expiration sweep API.
+* Tests for concurrent duplicates, rollback, canceled operations, restart persistence, migration upgrades, inbox filtering, ordering, and expiration boundaries.
+
+This is an internal storage layer. HTTP delivery, MCP, CLI messaging, retry scheduling, and daemon expiration scheduling remain pending. Callers supply configured deadlines and invoke the expiration sweep before reads when needed. See [local messaging API behavior](docs/messaging.md).
 
 ### Current schema and verification
 
-Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. The migration runner records applied versions in `schema_migrations`. Peer discovery uses `peers.json` and adds no SQLite migration. Conversation, message, and processed-message tables described later in this PRD are not implemented yet.
+Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. Migration 3 creates `conversations`, `messages`, and `processed_messages`, with constraints, immutable-content triggers, and lookup indexes. The migration runner records applied versions in `schema_migrations`. Peer discovery uses `peers.json` and adds no SQLite migration.
 
 The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between two Tailscale machines has not been verified.
 
@@ -1439,7 +1450,7 @@ Agent messages should contain only text explicitly sent by the agent.
 
 # 36. SQLite Schema
 
-Current implementation: only node identity and agent persistence are present, through migrations 1 and 2. The conversation and messaging tables below remain planned. See the implementation status section and [migration definitions](migrations/migrations.go).
+Current implementation: migrations 1 and 2 provide node identity and agents; migration 3 provides conversations, messages, and processed-message records. The sketch below is illustrative; the implementation also includes response links, receipt and expiration fields, constraints, triggers, and indexes. See the implementation status section and [migration definitions](migrations/migrations.go).
 
 A reasonable initial schema:
 
@@ -2399,6 +2410,8 @@ Abstract the discovery provider.
 
 ## Phase 5: Messaging
 
+Status: local conversation, message, durable inbox, and idempotent receipt APIs are implemented. HTTP delivery and acknowledgments remain pending.
+
 Build:
 
 ```text
@@ -2411,6 +2424,8 @@ idempotency
 ```
 
 ## Phase 6: Responses
+
+Status: local response linkage, question state, expiration, and ordered history APIs are implemented. Remote response delivery and agent-facing commands remain pending.
 
 Build:
 
