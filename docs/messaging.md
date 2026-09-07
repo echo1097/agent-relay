@@ -51,7 +51,7 @@ Questions default to expiration 24 hours after creation. To use a configured lif
 
 `ExpireRequests(ctx, now)` persistently expires unanswered questions whose deadline is at or before `now`, including unsent and failed requests. It is idempotent and does not alter answered questions or ordinary messages. The low-level local receipt API can persist past-deadline questions as expired. The network receipt API rejects new expired questions; exact duplicates still return their original receipt. The daemon runs expiration each second, and CLI message reads run a sweep before returning. Internal callers should also sweep before reads when current expiration state is required. Reads do not run a hidden sweep.
 
-The [delivery service](delivery.md) now provides explicit peer trust checks, routing, delivery acknowledgments, retries, daemon expiration, and CLI messaging. MCP and response-specific network APIs remain future work. These internal methods are not an authorization boundary; transport and MCP must authenticate callers and enforce access before invoking them.
+The [delivery service](delivery.md) now provides explicit peer trust checks, routing, delivery acknowledgments, retries, daemon expiration, and CLI messaging. Responses now use the same durable outbox and a dedicated HTTP endpoint, with automatic return routing through `messages respond`. MCP remains future work. These internal methods are not an authorization boundary; transport and MCP must authenticate callers and enforce access before invoking them.
 
 ## Schema and verification
 

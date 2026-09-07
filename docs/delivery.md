@@ -1,6 +1,6 @@
 # Peer message delivery
 
-`POST /v1/messages` delivers regular messages and questions to a registered local agent. It creates the two-participant conversation on first receipt. SQLite commits the conversation, peer association, immutable message, and processed-message marker before returning HTTP 200. Exact retries return the same acknowledgment, even after reading or expiration. Conflicting IDs or participants return 409. Registered offline agents still receive durable inbox entries.
+`POST /v1/messages` delivers regular messages and questions, and `POST /v1/responses` delivers responses to a registered local agent. It creates the two-participant conversation on first receipt. SQLite commits the conversation, peer association, immutable message, and processed-message marker before returning HTTP 200. Exact retries return the same acknowledgment, even after reading or expiration. Conflicting IDs or participants return 409. Registered offline agents still receive durable inbox entries.
 
 The local `messages send` command persists a message and its outbox entry atomically, then returns immediately. A running daemon picks it up within approximately 250 ms when the worker is idle. The command also works while the daemon is stopped. It never calls an AI provider. `messages get`, `inbox`, and `history` inspect local storage. These commands currently return internal Go field names; the network uses the versioned JSON representation below.
 
@@ -43,7 +43,7 @@ Requests require `Content-Type: application/json` and `X-Agent-Relay-Node-ID`. T
 }
 ```
 
-IDs must be canonical prefixed UUIDv7 values. Questions require an explicit deadline; the outbound service supplies the configured default. Ordinary messages omit `expires_at`. Text is limited to 64 KiB, and encoded requests to 512 KiB. Unknown fields, multiple JSON values, invalid participants, unsupported versions, and response messages are rejected. Response-specific APIs and MCP are not implemented in this chunk.
+IDs must be canonical prefixed UUIDv7 values. Questions require an explicit deadline; the outbound service supplies the configured default. Ordinary messages omit `expires_at`. Text is limited to 64 KiB, and encoded requests to 512 KiB. Responses use the same envelope with `type: "response"`, a required `reply_to` question ID, and no `expires_at`. Send them to `/v1/responses`; each endpoint rejects mismatched message types. Unknown fields, multiple JSON values, invalid participants, and unsupported versions are rejected. MCP is not implemented.
 
 Acknowledgment:
 
@@ -57,7 +57,7 @@ Acknowledgment:
 }
 ```
 
-The acknowledgment means durable receipt, not that the agent read or answered the message. New expired questions return 410 without creating an inbox item. Other errors include 403 `NODE_NOT_TRUSTED`, 404 `AGENT_NOT_FOUND`, 409 `MESSAGE_CONFLICT`, and the existing versioned validation/storage/timeout errors. A failed transaction never yields a delivery acknowledgment.
+The acknowledgment means durable receipt, not that the agent read or answered the message. New expired questions return 410 without creating an inbox item. Other errors include 403 `NODE_NOT_TRUSTED`, 404 `AGENT_NOT_FOUND` (or `MESSAGE_NOT_FOUND` for a response with a missing original or recipient), 409 `MESSAGE_CONFLICT`, and the existing versioned validation/storage/timeout errors. A failed transaction never yields a delivery acknowledgment.
 
 ## Retry and expiration behavior
 
@@ -67,73 +67,23 @@ Connection failures, request timeouts, HTTP 408/429/5xx, truncated responses, an
 
 The outbox persists attempts, next attempt time, deadline, and a generic failure reason. Restart resumes due work, including an interrupted `sending` attempt. Lost acknowledgments can cause redelivery, but cannot duplicate inbox entries. Successful acknowledgments set `delivered` and record the sender's delivery timestamp.
 
-Questions expire at their original deadline, including while waiting for delivery. The daemon sweeps once a second and CLI reads sweep before returning. Ordinary messages retain the existing message lifecycle: their outbox deadline uses the configured request lifetime, and undelivered ordinary messages become `failed` when that deadline passes. Delivered ordinary messages remain delivered. Expiration preserves history and never deletes messages.
+Questions expire at their original deadline, including while waiting for delivery. The daemon sweeps once a second and CLI reads sweep before returning. Ordinary messages and responses retain the existing message lifecycle: their outbox deadline uses the configured request lifetime, and undelivered ordinary messages and responses become `failed` when that deadline passes. Delivered ordinary messages and responses remain delivered. Expiration preserves history and never deletes messages.
 
-## Two-terminal procedure
+## Responses and follow-ups
 
-Build from the repository root with `source .venv/bin/activate` and `go build -o bin/agent-relay ./cmd/agent-relay`. Use two fresh directories, one per terminal. In terminal A:
+Use `messages respond --from LOCAL_AGENT_ID --id QUESTION_ID --text TEXT`. The service looks up the received question and derives its original sender, conversation ID, and pinned peer node. Only the original recipient can answer; the target must be a received question. The response and its outbox entry commit atomically with the local question's `answered` state and `AnsweredAt`. The original sender marks its copy answered when it receives the response. The response's own delivery status remains independently visible.
 
-```sh
-relayHome=/tmp/relay-demo-a
-agentA=$(./bin/agent-relay agents register --home "$relayHome" --name agent-a)
-./bin/agent-relay agents get --home "$relayHome" --id "$agentA"
-```
+A distinct second response is rejected, even if its text matches. Exact delivery retries return the original acknowledgment and preserve both receipt and answered timestamps. Invalid originals, wrong participants or conversations, expired questions, and conflicting message IDs cannot append history. Rejections roll back the entire transaction. A response cannot answer another response or a regular message.
 
-In terminal B:
+Use `messages send --conversation EXISTING_ID --type question` for a follow-up. A supplied conversation ID must already exist locally, and its two participants and peer binding must match. Omit the ID to start a new conversation. The first remote receipt creates the matching conversation on the other node. New messages advance `UpdatedAt` to the maximum message creation time; exact retries do not change it. History sorts by creation time and message ID.
 
-```sh
-relayHome=/tmp/relay-demo-b
-agentB=$(./bin/agent-relay agents register --home "$relayHome" --name agent-b)
-./bin/agent-relay agents get --home "$relayHome" --id "$agentB"
-```
+Responses have their own outbox deadline using the configured request lifetime. A receiving node still rejects a new response once the original question expires. A locally queued answer remains recorded even if delivery later fails; inspect the response status to distinguish local answering from return delivery.
 
-Record both `node_id` values and agent IDs. Write each directory's `config.toml`. For A, use port 47931 and B's node ID with peer port 47932. For B, use port 47932 and A's node ID with peer port 47931:
+## Two-terminal and two-machine procedure
 
-```toml
-[network]
-development = true
-bind_address = "127.0.0.1"
-port = 47931
+Follow the [complete conversation test](conversation-test.md) for installation on another machine, explicit trust setup, both question/answer rounds, duplicate checks, persistence checks, and shutdown. It includes localhost and Tailscale configurations.
 
-[[trusted_peers]]
-node_id = "REPLACE_WITH_OTHER_NODE_ID"
-address = "127.0.0.1"
-port = 47932
-```
-
-In each terminal, start that directory's daemon:
-
-```sh
-./bin/agent-relay daemon --home "$relayHome" &
-relayPid=$!
-```
-
-In terminal A, substitute B's IDs and queue a question:
-
-```sh
-./bin/agent-relay messages send --home "$relayHome" \
-  --from "$agentA" --to AGENT_B_ID --peer NODE_B_ID \
-  --type question --text "Did you change refresh token validation?"
-./bin/agent-relay messages get --home "$relayHome" --id MESSAGE_ID
-```
-
-Get should change from `created` or `sending` to `delivered`. In terminal B:
-
-```sh
-./bin/agent-relay messages inbox --home "$relayHome" --agent "$agentB"
-./bin/agent-relay messages send --home "$relayHome" \
-  --from "$agentB" --to AGENT_A_ID --peer NODE_A_ID \
-  --conversation CONVERSATION_ID --text "I am checking the validation change."
-```
-
-Check A's inbox. Stop B, send another message from A, and verify A reports `pending_delivery`. Restart B and verify eventual `delivered` and exactly one new inbox entry. Restart either daemon to verify history remains available. Finally, in both terminals:
-
-```sh
-kill -TERM "$relayPid"
-wait "$relayPid"
-```
-
-Automated localhost coverage lives in `internal/daemon/delivery_test.go`. It includes bidirectional delivery, immutable duplicate acknowledgments, restart recovery, missing recipients, expiration, lost acknowledgments, and terminal failures. Transport unit tests cover request timeouts, retry delays, response limits, and rejected redirects.
+Automated localhost coverage lives in `internal/daemon/conversation_test.go` and `internal/daemon/delivery_test.go`. The PRD section 56 test is `TestAgentRelayEndToEndConversation`. It exercises real HTTP discovery probes and agent listing with a fake tailnet, then the full four-message conversation. Additional tests cover response validation, participant checks, lost acknowledgments and database restart recovery. No MCP or paid APIs are used.
 
 ## Recorded verification
 
@@ -146,3 +96,5 @@ On September 6, 2026, two foreground daemon processes were exercised in separate
 - After stopping both daemons, a fresh CLI process read the same three messages from B's database.
 
 Both test daemons were stopped. This validates localhost delivery; it is not a live two-machine Tailscale test.
+
+The full four-message CLI conversation also passed on September 6, 2026 using two localhost daemon processes and fresh databases. Both nodes preserved matching history after shutdown; duplicate responses were rejected. Formatting, vet, all tests, builds, and race checks passed. The complete procedure is recorded in [conversation-test.md](conversation-test.md).

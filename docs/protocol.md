@@ -1,6 +1,6 @@
 # HTTP protocol foundation
 
-The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Regular-message/question delivery and configured peer trust are implemented; MCP and full trust management remain pending.
+The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Regular-message/question/response delivery and configured peer trust are implemented; MCP and full trust management remain pending.
 
 ## Listener
 
@@ -103,4 +103,4 @@ Integration tests run the daemon on `127.0.0.1:0`, allowing the OS to select an 
 
 ## Message transport
 
-`POST /v1/messages` now accepts trusted peer delivery of regular messages and questions. See [message wire format, acknowledgment, validation, trust, timeouts and retry behavior](delivery.md). Response-specific convenience APIs and MCP remain deferred.
+`POST /v1/messages` now accepts trusted peer delivery of regular messages and questions. See [message wire format, acknowledgment, validation, trust, timeouts and retry behavior](delivery.md). `POST /v1/responses` accepts linked responses using the same envelope plus `reply_to`. MCP remains deferred.

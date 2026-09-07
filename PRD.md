@@ -2,17 +2,17 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, against implementation commit `867e422`, including the completed two-terminal delivery check.
+Last reviewed: September 6, 2026, including response delivery, the required four-message conversation test, and a completed two-process CLI check.
 
-The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, and peer message delivery with retries. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, and bidirectional peer message delivery with responses and retries. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
 | Area | Current status |
 | --- | --- |
 | Phase 1: Foundation | Implemented. |
 | Phase 2: Local agent registry | Implemented. Busy and idle are explicitly set by callers; automatic idle detection is not implemented. |
-| Phase 3: Inter-node transport | HTTP foundation and regular-message/question delivery implemented, with durable acknowledgments and retries. |
+| Phase 3: Inter-node transport | HTTP foundation and message/question/response delivery implemented, with durable acknowledgments and retries. |
 | Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery and cache, and initial diagnostics. Real-tailnet validation remains outstanding. |
-| Phases 5 and 6: Messaging and responses | Local models, durable inboxes, history, idempotency, read tracking, responses, and expiration APIs implemented. Regular-message/question transport and local CLI messaging implemented. Response-specific transport and MCP remain pending. |
+| Phases 5 and 6: Messaging and responses | Durable inboxes, ordered history, response linkage, answered timestamps, follow-ups, idempotency, expiration, HTTP transport, and CLI messaging implemented. The section 56 conversation test passes without MCP. MCP remains pending. |
 | Phase 7: Trust | Temporary configured node/address trust is enforced for message delivery. Full trust management remains pending. |
 | Phase 8: MCP | Not implemented. |
 | Phases 9 and 10: Services and installer | Not implemented. |
@@ -88,12 +88,12 @@ HTTP delivery, CLI messaging, retry scheduling, and daemon expiration scheduling
 
 ### Built: peer message delivery
 
-* Versioned `POST /v1/messages` accepts regular messages and questions after sender trust and local recipient validation.
+* Versioned `POST /v1/messages` accepts regular messages and questions; `POST /v1/responses` accepts linked responses after sender trust, recipient, and original question validation.
 * Temporary explicit configuration pins stable peer node IDs to Tailscale IPv4 addresses, with loopback allowed in development only. Discovery grants no trust.
 * Conversations, remote agent ownership, inbox messages, and duplicate markers commit before acknowledgment. Exact retries preserve the original receipt, including after expiration.
 * The durable outbox survives restarts and tracks attempts, deadlines, next retry times, and failure reasons. Temporary failures follow the section 41 retry schedule, then a configurable slower interval.
 * Five-second outbound request limits, bounded responses, rejected redirects/proxies, terminal rejection handling, and daemon expiration sweeps.
-* Local `messages send`, `get`, `inbox`, and `history` commands. Response-specific convenience APIs and MCP remain deferred.
+* Local `messages send`, `respond`, `get`, `inbox`, and `history` commands. Responses derive the return route from the original question; existing conversation IDs require matching participants and peer bindings. MCP remains deferred.
 
 The manual two-terminal procedure passed on localhost: A sent a question to B, B sent a regular message to A, and an outgoing follow-up remained `pending_delivery` while B was stopped before delivering automatically after restart. B retained exactly three ordered messages, readable from a fresh CLI process after both daemons stopped. Both test daemons were shut down. See [peer delivery and the recorded procedure](docs/delivery.md). Live two-machine Tailscale delivery remains unverified.
 
@@ -103,7 +103,7 @@ Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 
 
 The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between two Tailscale machines has not been verified.
 
-The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The complete response/MCP test in section 56 has not been implemented or passed. The project is not yet a complete V0.1 release.
+The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The section 56 end-to-end conversation test passes using internal service calls and real HTTP between two localhost daemons, with a fake tailnet for discovery. It verifies agent listing, both question/answer rounds, response mapping, answered timestamps, conversation update time, duplicate handling, and four ordered messages after reopening both databases. MCP is deliberately not involved. A real two-process CLI exchange also passed; see [the complete manual procedure](docs/conversation-test.md). The project is not yet a complete V0.1 release.
 
 ---
 
@@ -2426,7 +2426,7 @@ Abstract the discovery provider.
 
 ## Phase 5: Messaging
 
-Status: local storage, HTTP delivery, acknowledgments, configured peer trust, retries, expiration scheduling, and CLI messaging are implemented for regular messages and questions.
+Status: local storage, HTTP delivery, acknowledgments, configured peer trust, retries, expiration scheduling, and CLI messaging are implemented for regular messages, questions, and responses.
 
 Build:
 
@@ -2441,7 +2441,7 @@ idempotency
 
 ## Phase 6: Responses
 
-Status: local response linkage, question state, expiration, and ordered history APIs are implemented. Regular-message/question CLI delivery works; response-specific delivery and MCP remain pending.
+Status: response linkage, atomic question completion, answered timestamps, conversation updates, ordered history, automatic return routing, follow-up questions, response transport, and CLI commands are implemented. The required four-message test passes, including database restart checks. MCP remains pending.
 
 Build:
 

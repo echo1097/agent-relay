@@ -1,6 +1,6 @@
 # Agent Relay
 
-Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. It now includes [peer message delivery](docs/delivery.md), explicit configured peer trust, durable outgoing retries, and CLI messaging. MCP, full trust management, and service installation remain pending.
+Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. It now includes [peer message delivery](docs/delivery.md), explicit configured peer trust, durable outgoing retries, and CLI messaging with linked responses and follow-up conversations. MCP, full trust management, and service installation remain pending.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.
 
@@ -133,4 +133,6 @@ Tailscale must be available through `tailscale` on PATH or the macOS application
 
 ## Peer messaging
 
-Use `agent-relay messages help` for send, get, inbox, and history commands. Configure trusted peer node IDs and addresses before sending. The daemon delivers queued regular messages and questions, persists incoming messages before acknowledgment, and retries temporary failures after restart. See [delivery behavior and the two-terminal test procedure](docs/delivery.md). Restart running daemons after installing this build.
+Use `agent-relay messages help` for send, respond, get, inbox, and history commands. Configure trusted peer node IDs and addresses before sending. The daemon delivers queued regular messages, questions, and responses, persists incoming messages before acknowledgment, and retries temporary failures after restart. See [delivery behavior and the two-terminal test procedure](docs/delivery.md). Restart running daemons after installing this build.
+
+For the full A → B → A → B → A flow, follow the [two-terminal or two-machine conversation test](docs/conversation-test.md), including installation on another test machine. The mandatory PRD end-to-end test now covers all four messages and durable history on both nodes without MCP.
