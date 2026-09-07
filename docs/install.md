@@ -59,3 +59,5 @@ Databases, node identities, messages, trust, logs, previous service binaries, ba
 Source: `installers/install.sh`. The Pages workflow publishes only that file and these instructions as `README.txt`; it does not publish the entire docs directory. Configure repository Pages to use GitHub Actions. The intended public endpoint is `https://echo1097.github.io/agent-relay/install.sh`.
 
 Push a reviewed `v*` tag to run the release workflow. It runs tests and vet, cross-compiles all four targets, generates SHA256SUMS, uploads a draft release, then publishes it. Do not move a published tag or replace its assets. A failed draft can be inspected and removed before retrying. Keep release tags compatible with the installer's `v` prefix validation.
+
+See [installer verification](installer-verification.md) for automated coverage, real-host results, and test limits.
