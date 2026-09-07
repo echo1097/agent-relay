@@ -188,9 +188,7 @@ main() {
     printf '\n%sAgent Relay %s installed successfully.%s\n' "$green" "$releaseVersion" "$reset"
     printf 'Background service runs at login. Reconnect Codex or Claude to load Relay tools.\n'
     case ":$PATH:" in *":$binDir:"*) ;; *) printf 'Add this directory to your shell PATH: %s\n' "$binDir" ;; esac
-    printf '\nPairing: install Relay on the other computer, then run there:\n'
-    printf '  agent-relay trust %s\n' "$nodeId"
-    printf 'Trust the other computer’s node ID on this computer too.\n'
+    printf '\nDevices on your tailnet pair automatically. Explicitly blocked nodes stay blocked.\n'
     printf '\n%sThis computer’s node ID:%s\n%s\n' "$cyan" "$reset" "$nodeId"
 
 }

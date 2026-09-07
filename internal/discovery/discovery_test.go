@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/storage"
 	"agent-relay/internal/tailscale"
 	"github.com/google/uuid"
 )
@@ -237,4 +238,50 @@ func TestDisappearingPeerLogsOnce(t *testing.T) {
 	if strings.Count(output.String(), "peer lost") != 1 || !strings.Contains(output.String(), "peer discovered") {
 		t.Fatal("missing or repeated transition event", output.String())
 	}
+}
+
+func TestAutomaticTailnetTrust(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	hello := validHello()
+	client := &fakeClient{status: tailscale.Status{Connected: true, IP: "100.64.0.1", Peers: []tailscale.Peer{{ID: "device", IP: "100.64.0.2"}}}}
+	prober := &fakeProber{hello: hello}
+	manager := Manager{Store: store, Client: client, Prober: prober, Port: 47832, BoundIP: "100.64.0.1", Path: filepath.Join(t.TempDir(), "peers.json")}
+	checkState := func(expected storage.TrustState) {
+		t.Helper()
+		if _, err := manager.Refresh(ctx); err != nil {
+			t.Fatal(err)
+		}
+		peer, err := store.PeerTrust(ctx, hello.Node.ID)
+		if err != nil || peer.State != expected {
+			t.Fatalf("peer: %+v %v", peer, err)
+		}
+	}
+	prober.err = ErrMalformed
+	checkState(storage.Unknown)
+	prober.err = nil
+	manager.BoundIP = ""
+	checkState(storage.Unknown)
+	manager.BoundIP = "100.64.0.1"
+	checkState(storage.Trusted)
+	peer, _ := store.PeerTrust(ctx, hello.Node.ID)
+	if peer.TailscaleID != "device" {
+		t.Fatal("missing device binding")
+	}
+	client.status.Peers[0].ID = "impostor"
+	checkState(storage.Trusted)
+	saved, _ := store.PeerTrust(ctx, hello.Node.ID)
+	if saved.TailscaleID != "device" {
+		t.Fatal("replaced device binding")
+	}
+	peer.State = storage.Blocked
+	if err := store.SetPeerTrust(ctx, peer); err != nil {
+		t.Fatal(err)
+	}
+	client.status.Peers[0].ID = "device"
+	checkState(storage.Blocked)
 }

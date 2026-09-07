@@ -32,6 +32,7 @@ Usage: agent-relay <command> [--home PATH]
 
 Commands:
   daemon    Run the local daemon and presence checks in the foreground
+  dnd       Toggle receiving new messages and questions on or off
   nodeid    Print this computer's node ID
   status    Initialize local storage and show daemon, node, and database status
   peers     Show cached peer discovery and last-seen state
@@ -81,7 +82,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return runSetup(args[1:], output, errorOutput)
 	case "service":
 		return runService(ctx, args[1:], output, errorOutput)
-	case "mcp", "daemon", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
+	case "mcp", "daemon", "dnd", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -187,6 +188,18 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	node, err := store.Node(ctx, hostname)
 	if err != nil {
 		return fmt.Errorf("load node identity: %w", err)
+	}
+	if command == "dnd" {
+		enabled, err := store.ToggleDnd(ctx)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			_, err = fmt.Fprintln(output, "DND on: new incoming messages and questions are disabled. Replies are still allowed.")
+		} else {
+			_, err = fmt.Fprintln(output, "DND off: incoming messages and questions are enabled.")
+		}
+		return err
 	}
 	if command == "nodeid" {
 		_, err := fmt.Fprintln(output, node.ID)
@@ -306,6 +319,13 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	}
 	_, err = fmt.Fprintf(output, "Agent Relay %s\n\nDaemon\n  %s\n\nNode\n  %s\n  %s\n\nDatabase\n  Ready\n  %s\n  Schema version: %d\n\nConfiguration\n  %s (defaults for omitted settings)\n", version, daemonState, node.Name, node.ID, paths.Database, schemaVersion, paths.Config)
 	if err != nil {
+		return err
+	}
+	dnd, err := store.Dnd(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "\nDo not disturb\n  %t\n", dnd); err != nil {
 		return err
 	}
 	_, err = fmt.Fprint(output, "\nLocal agents\n")

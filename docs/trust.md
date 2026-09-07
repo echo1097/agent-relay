@@ -1,6 +1,6 @@
 # Peer trust
 
-V0.1 stores explicit peer decisions in SQLite migration 5 (`peer_trust`). Each decision uses a stable Relay node ID. Discovery creates unknown peers and never changes an existing decision or device binding.
+Relay stores peer decisions in SQLite (`peer_trust`). Starting with v0.1.4, production discovery automatically trusts compatible Relay nodes verified at addresses supplied by the connected Tailscale client. Each node is bound to a stable Tailscale device identity. Failed probes, local nodes, development mode, and devices outside the current Tailscale peer list do not receive automatic trust. Existing blocks and different device bindings are preserved.
 
 | State | Discovery | Messages, questions, responses |
 | --- | --- | --- |
@@ -37,9 +37,9 @@ Explicit development mode uses a saved loopback address plus Relay ID for isolat
 
 ## Existing configuration
 
-`[[trusted_peers]]` remains supported as an optional address and port hint for enrollment, including nondefault ports and loopback tests. Its name is retained for compatibility, but it no longer grants permission. Existing installations must run `agent-relay trust NODE_ID` once for each intended peer after installing this build. Discovery supplies the route for normal same-port Tailscale installations, so configuration is not required.
+`[[trusted_peers]]` remains supported as an optional address and port hint for enrollment, including nondefault ports and loopback tests. Its name is retained for compatibility, but it no longer grants permission. Existing installations automatically enroll verified tailnet peers after upgrading and restarting the daemon. Both computers need this version to avoid manual trust on the older side. Discovery supplies the route for normal same-port Tailscale installations, so configuration is not required.
 
-Start both daemons before enrollment so their hello endpoints are available. Rebuild and restart existing daemons to load this implementation. Later trust changes do not require a restart. Node identities, agents, conversations, and existing messages are preserved by the migration.
+Start both daemons before discovery so their hello endpoints are available. Rebuild and restart existing daemons to load this implementation. Later trust changes do not require a restart. Node identities, agents, conversations, and existing messages are preserved by the migration.
 
 ## Rejections and diagnostics
 
@@ -54,3 +54,9 @@ Local queue requests reject unknown and blocked peers. Pending deliveries rechec
 The automated tests cover persistent trust transitions, discovery preserving decisions, source identity spoofing, Tailscale address reassignment, network mode isolation, unavailable identity verification, changed destination identities, unknown and blocked requests on both delivery endpoints, duplicate rejection after revocation, revocation during body reading, queued delivery revocation, CLI enrollment and inspection, ambiguous names, and offline blocking.
 
 On September 6, 2026, isolated daemons on machine A and machine B exchanged a question and response over the actual Tailscale network on port 47839. Unknown and blocked incoming requests returned HTTP 403 `NODE_NOT_TRUSTED`; resetting and restoring trust took effect without restart. A follow-up delivered after trust restoration, SQLite inspection showed the stable Tailscale device binding, and doctor passed. Both temporary daemons were stopped. Existing machine identities, data, and daemons were preserved. No model-provider APIs were used.
+
+## Automatic trust and DND
+
+Automatic trust is always enabled in production. It grants messaging access to reachable, verified Relay devices visible through Tailscale. `block NODE_ID` is the persistent opt-out for that Relay node. `untrust NODE_ID` resets the decision to unknown, which discovery can trust again. A block applies to the Relay node ID; use Tailscale access controls to deny a device regardless of its Relay identity. A different device cannot automatically take over an existing node binding; explicit `trust NODE_ID` is required after reviewing that change.
+
+`agent-relay dnd` toggles receiving new messages and questions. SQLite migration 6 stores this setting, and the receive transaction checks it before saving a request. Replies to existing outgoing questions are allowed. DND returns HTTP 403 with `DO_NOT_DISTURB`; senders record a permanent rejection and must send again when the recipient is available. No restart is required to toggle DND. Existing queued inbox items are retained.

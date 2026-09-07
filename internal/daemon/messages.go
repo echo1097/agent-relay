@@ -76,6 +76,8 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 	if err != nil {
 		status, code, detail := 500, protocol.InternalError, "The message could not be stored."
 		switch {
+		case errors.Is(err, storage.ErrDnd):
+			status, code, detail = 403, protocol.DoNotDisturb, "This computer has do not disturb enabled. Try again after its owner turns DND off."
 		case errors.Is(err, storage.ErrNodeNotTrusted):
 			status, code, detail = 403, protocol.NodeNotTrusted, "Trust was revoked before this message could be stored. Ask the receiving owner to inspect peer trust."
 		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):

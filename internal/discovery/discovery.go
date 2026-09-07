@@ -157,6 +157,11 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 				if err := manager.Store.ObservePeer(persistCtx, probe.hello.Node); err != nil {
 					return next, err
 				}
+				if manager.BoundIP != "" {
+					if err := manager.Store.TrustTailnetPeer(persistCtx, probe.hello.Node, probe.peer.ID, probe.peer.IP, manager.Port); err != nil {
+						return next, err
+					}
+				}
 			}
 			peer.Node = probe.hello.Node
 			peer.Version = probe.hello.Version

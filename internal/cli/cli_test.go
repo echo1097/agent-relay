@@ -30,7 +30,7 @@ func TestCommands(t *testing.T) {
 	if err := runWithClient(context.Background(), []string{"status", "--home", home}, &output, &output, "test-version", testClient{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Stopped", "node_", "Schema version: 5", "test-version"} {
+	for _, expected := range []string{"Stopped", "node_", "Schema version: 6", "test-version"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %q in %s", expected, output.String())
 		}
@@ -182,5 +182,18 @@ func TestNodeId(t *testing.T) {
 	}
 	if err := Run(context.Background(), []string{"nodeid", "extra", "--home", relayHome}, &nextOutput, &nextOutput, "test"); err == nil {
 		t.Fatal("accepted extra arguments")
+	}
+}
+
+func TestDndToggle(t *testing.T) {
+	relayHome := t.TempDir()
+	for _, expected := range []string{"DND on:", "DND off:"} {
+		var output bytes.Buffer
+		if err := runWithClient(context.Background(), []string{"dnd", "--home", relayHome}, &output, &output, "test", nil); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(output.String(), expected) {
+			t.Fatalf("unexpected toggle: %s", output.String())
+		}
 	}
 }

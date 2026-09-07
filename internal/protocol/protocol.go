@@ -21,6 +21,7 @@ const (
 	UnsupportedProtocol = "UNSUPPORTED_PROTOCOL"
 	NotFound            = "NOT_FOUND"
 	MethodNotAllowed    = "METHOD_NOT_ALLOWED"
+	DoNotDisturb        = "DO_NOT_DISTURB"
 	InternalError       = "INTERNAL_ERROR"
 	RequestTimeout      = "REQUEST_TIMEOUT"
 )
@@ -192,7 +193,7 @@ func (response Error) Validate() error {
 		return errors.New("invalid error response")
 	}
 	switch response.Error.Code {
-	case NodeNotTrusted, AgentNotFound, MessageNotFound, MessageConflict, MessageExpired, InvalidRequest, UnsupportedProtocol, NotFound, MethodNotAllowed, InternalError, RequestTimeout:
+	case DoNotDisturb, NodeNotTrusted, AgentNotFound, MessageNotFound, MessageConflict, MessageExpired, InvalidRequest, UnsupportedProtocol, NotFound, MethodNotAllowed, InternalError, RequestTimeout:
 		return nil
 	default:
 		return errors.New("invalid error code")

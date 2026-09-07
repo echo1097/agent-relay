@@ -110,5 +110,11 @@ CREATE TABLE peer_trust (
  development INTEGER NOT NULL DEFAULT 0 CHECK (development IN (0, 1)),
  CHECK (state != 'trusted' OR tailscale_id != '' OR development = 1)
 );
+`}, {Version: 6, SQL: `
+CREATE TABLE local_settings (
+ id INTEGER PRIMARY KEY CHECK (id = 1),
+ dnd INTEGER NOT NULL DEFAULT 0 CHECK (dnd IN (0, 1))
+);
+INSERT INTO local_settings (id) VALUES (1);
 `}}
 }

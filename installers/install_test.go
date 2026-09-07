@@ -252,7 +252,7 @@ func TestInstallerConciseOutput(t *testing.T) {
 	if strings.Contains(output, "verbose diagnostic detail") || strings.Contains(output, "\x1b[") {
 		t.Fatalf("unexpected noise: %s", output)
 	}
-	if !strings.Contains(output, "agent-relay trust node_test-123") || !strings.HasSuffix(output, "node_test-123\n") {
+	if !strings.Contains(output, "Devices on your tailnet pair automatically") || !strings.HasSuffix(output, "node_test-123\n") {
 		t.Fatalf("missing pairing details: %s", output)
 	}
 	output, err = state.run(t, []string{"testCommandFailure=doctor"})

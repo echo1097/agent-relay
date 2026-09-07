@@ -196,9 +196,9 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 		report.check("Trusted peer reachability "+peer.NodeID, configErr == nil && probeErr == nil && hello.Validate() == nil && hello.Node.ID == peer.NodeID, address, "Start the remote daemon and check Tailscale ACLs, firewall and its saved port. Inspect trust-state; if device or Relay identity changed, verify the peer before trusting it again.")
 	}
 	if installation && trustedCount == 0 {
-		report.next("Trusted peer reachability", "Inspect agent-relay peers, verify the other device, then explicitly trust its node ID on both machines.")
+		report.next("Trusted peer reachability", "Install Relay on another tailnet device and wait for automatic discovery. Explicitly blocked nodes remain blocked.")
 	} else if trustedCount == 0 {
-		report.check("Trusted peer reachability", false, "no trusted peers", "Inspect agent-relay peers and explicitly run agent-relay trust NODE_ID with this --home for a verified peer.")
+		report.check("Trusted peer reachability", false, "no trusted peers", "Install Relay on another tailnet device and wait for automatic discovery. Inspect agent-relay peers for blocked nodes or changed device bindings.")
 	}
 	return nil
 }

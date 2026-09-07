@@ -185,6 +185,8 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 		var rejection protocol.Error
 		if err == nil && len(data) <= 64*1024 && json.Unmarshal(data, &rejection) == nil && rejection.Validate() == nil {
 			switch rejection.Error.Code {
+			case protocol.DoNotDisturb:
+				return false, protocol.DoNotDisturb + ": the receiving computer has DND enabled; send again when available"
 			case protocol.NodeNotTrusted:
 				return false, protocol.NodeNotTrusted + ": ask the receiving owner to inspect trust-state and verify the sender"
 			case protocol.UnsupportedProtocol:

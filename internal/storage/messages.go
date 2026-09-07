@@ -178,6 +178,15 @@ func (store *Store) insertMessage(ctx context.Context, message messaging.Message
 				return ErrNodeNotTrusted
 			}
 		}
+		if incoming && message.Type != messaging.Response {
+			var dnd bool
+			if err := conn.QueryRowContext(ctx, "SELECT dnd FROM local_settings WHERE id = 1").Scan(&dnd); err != nil {
+				return err
+			}
+			if dnd {
+				return ErrDnd
+			}
+		}
 		if peerID != "" {
 			if err := prepareDelivery(ctx, conn, message, incoming, peerID); err != nil {
 				return err

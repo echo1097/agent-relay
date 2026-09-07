@@ -32,7 +32,7 @@ For a pipeline, apply environment options to `sh`, not to `curl`. The installer 
 
 The installer checks Tailscale and the service manager, installs the binary, runs `status` to initialize local storage, runs `service install`, configures detected clients, then runs `doctor --installation`. No supported client installed is an explicit NEXT step. Conflicting or malformed detected client configurations remain errors. No provider API is invoked and no coding client is launched.
 
-Installation doctor reports missing first-time agents, missing clients, missing peers, and missing trust as NEXT steps. It still fails for database problems, broken client entries, disconnected Tailscale, listener problems, invalid peer protocols, and unreachable already trusted peers. Plain `agent-relay doctor` remains strict and reports incomplete onboarding as failures. Reconnect clients and explicitly establish trust on both devices to complete onboarding.
+Installation doctor reports missing first-time agents, missing clients, missing peers, and missing trust as NEXT steps. It still fails for database problems, broken client entries, disconnected Tailscale, listener problems, invalid peer protocols, and unreachable already trusted peers. Plain `agent-relay doctor` remains strict and reports incomplete onboarding as failures. Reconnect clients and allow discovery to automatically trust verified tailnet devices on both computers.
 
 ## File safety and upgrades
 
@@ -66,4 +66,10 @@ See [installer verification](installer-verification.md) for automated coverage, 
 
 Installation shows short progress lines and prints detailed command output only when a step fails. Terminal output uses color unless `NO_COLOR` is set; redirected output stays plain. Run `agent-relay doctor` for the full diagnostic report.
 
-The final lines show this computer's node ID and a command to trust it from another computer. Trust the other computer's node ID locally as well. Retrieve your ID anytime with `agent-relay nodeid`, or `agent-relay nodeid --home /absolute/path` for a custom data directory. This command prints only the persistent ID and initializes local storage if needed, without requiring a running daemon or Tailscale connection.
+The final lines show this computer's node ID. Verified tailnet devices pair automatically; explicitly blocked nodes stay blocked. Retrieve your ID anytime with `agent-relay nodeid`, or `agent-relay nodeid --home /absolute/path` for a custom data directory. This command prints only the persistent ID and initializes local storage if needed, without requiring a running daemon or Tailscale connection.
+
+### Do not disturb
+
+Run `agent-relay dnd` to toggle new incoming messages and questions off or on. The setting is stored in the local database and takes effect immediately, including for an already running daemon. It survives restarts. `agent-relay status` shows the current state. Use `--home PATH` for a custom installation.
+
+DND leaves discovery, outgoing messages, existing history, and responses to your outgoing questions available. A rejected sender sees `DO_NOT_DISTURB`; rejected messages are not saved on the receiving computer or automatically resent after DND is disabled.

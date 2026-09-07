@@ -1,20 +1,15 @@
-# Agent Relay v0.1.3
+# Agent Relay v0.1.4
 
-Fixed macOS installation when launchd registers the background service but defers its automatic launch.
+Devices on your tailnet now pair automatically. Production discovery verifies each Relay node against a visible Tailscale device and saves its device binding. Manual pairing is no longer required when both computers run this version. Explicitly blocked node IDs stay blocked, and existing bindings cannot be replaced automatically by another device.
 
-- Explicitly starts newly registered services with `launchctl kickstart`, including in on-demand-only GUI domains.
-- Leaves already running services running without an extra start request.
-- Startup readiness failures now include the service status command and log directory while preserving the underlying error.
-- Added regression tests for deferred startup and readiness status timeouts.
+Added `agent-relay dnd`: run it once to disable new incoming messages and questions, and again to resume. It takes effect immediately and survives restarts. Outgoing messages, discovery, existing inbox items, and replies to your outgoing questions remain available. Rejected senders see `DO_NOT_DISTURB` and must resend after DND is turned off.
 
-Validation: the full unit test suite, vet, build, and installer syntax checks passed. A real macOS service test confirmed installation and readiness, but its later automatic crash-recovery check failed on the test machine's on-demand-only GUI domain. This release does not resolve automatic recovery in that environment.
+The installer and diagnostics now explain automatic pairing. `agent-relay status` shows DND state. SQLite migration 6 saves the new setting while preserving existing data.
 
-Install or update with Tailscale connected:
+Update both computers:
 
 ```sh
 curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh
 ```
 
-Reconnect Codex or Claude after updating. The installer restarts the background service. Existing identities, messages, and trust are preserved.
-
-Compiled binaries are included for macOS and Linux on arm64 and amd64. The release workflow runs tests and vet, validates shell syntax, and publishes SHA-256 checksums alongside the binaries.
+The installer restarts the backend. Reconnect Codex or Claude after upgrading. Use `agent-relay block NODE_ID` to deny a node, or Tailscale access controls to restrict an entire device. Resetting a node with `untrust` allows automatic discovery to trust it again.

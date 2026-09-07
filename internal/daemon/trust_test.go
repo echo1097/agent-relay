@@ -139,3 +139,88 @@ func TestQueuedMessageFailsAfterBlock(t *testing.T) {
 		t.Fatalf("revoked message retried: %+v %v", due, err)
 	}
 }
+
+func TestDndRejectsNewRequests(t *testing.T) {
+	ctx := context.Background()
+	nodeA := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeB := makeDeliveryNode(t, "127.0.0.1:0")
+	if err := nodeB.store.SetPeerTrust(ctx, storage.PeerTrust{NodeID: nodeA.node.ID, Name: "sender", State: storage.Trusted, Address: "127.0.0.1", Port: 47832, Development: true}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newHTTPServer(nodeB.registry, HTTPOptions{Node: protocol.PublicNode(nodeB.node.ID, "test"), Version: "test", Delivery: nodeB.service}, nodeB.service.Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled, err := nodeB.store.ToggleDnd(ctx); err != nil || !enabled {
+		t.Fatalf("toggle: %v %v", enabled, err)
+	}
+	for _, messageType := range []messaging.Type{messaging.MessageType, messaging.Question} {
+		messageId, _ := messaging.NewID("msg")
+		conversationId, _ := messaging.NewID("conv")
+		now := time.Now().UTC()
+		expires := now.Add(time.Hour)
+		message := messaging.Message{ID: messageId, ConversationID: conversationId, SenderAgentID: nodeA.agent.ID, RecipientAgentID: nodeB.agent.ID, Type: messageType, Text: "hello", CreatedAt: now}
+		if messageType == messaging.Question {
+			message.ExpiresAt = &expires
+		}
+		data, _ := json.Marshal(protocol.WireMessage(message))
+		post := func() *httptest.ResponseRecorder {
+			request := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(data))
+			request.RemoteAddr = "127.0.0.1:1234"
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(protocol.NodeHeader, nodeA.node.ID)
+			writer := httptest.NewRecorder()
+			server.Handler.ServeHTTP(writer, request)
+			return writer
+		}
+		writer := post()
+		if writer.Code != 403 || !strings.Contains(writer.Body.String(), protocol.DoNotDisturb) {
+			t.Fatalf("DND: %d %s", writer.Code, writer.Body)
+		}
+		if _, err := nodeB.store.GetMessage(ctx, messageId); err == nil {
+			t.Fatal("DND stored incoming message")
+		}
+		if _, err := nodeB.store.ToggleDnd(ctx); err != nil {
+			t.Fatal(err)
+		}
+		writer = post()
+		if writer.Code != 200 {
+			t.Fatalf("DND off: %d %s", writer.Code, writer.Body)
+		}
+		if _, err := nodeB.store.ToggleDnd(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestDndAllowsOutgoingAndResponses(t *testing.T) {
+	ctx := context.Background()
+	nodeA := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeB := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeA.start(t)
+	nodeB.start(t)
+	trustNode(t, nodeA, nodeB)
+	trustNode(t, nodeB, nodeA)
+	if _, err := nodeA.store.ToggleDnd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	question, err := nodeA.service.Queue(ctx, messaging.Message{SenderAgentID: nodeA.agent.ID, RecipientAgentID: nodeB.agent.ID, Type: messaging.Question, Text: "outgoing during DND"}, nodeB.node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitMessage(t, nodeB.store, question.ID, messaging.Delivered)
+	response, err := nodeB.service.Respond(ctx, nodeB.agent.ID, question.ID, "reply during DND")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitMessage(t, nodeA.store, response.ID, messaging.Delivered)
+	message, err := nodeB.service.Queue(ctx, messaging.Message{SenderAgentID: nodeB.agent.ID, RecipientAgentID: nodeA.agent.ID, Type: messaging.MessageType, Text: "new request"}, nodeA.node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitMessage(t, nodeB.store, message.ID, messaging.Failed)
+	delivery, err := nodeB.store.GetDelivery(ctx, message.ID)
+	if err != nil || delivery == nil || !strings.Contains(delivery.LastError, protocol.DoNotDisturb) {
+		t.Fatalf("DND delivery: %+v %v", delivery, err)
+	}
+}

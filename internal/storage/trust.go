@@ -98,3 +98,17 @@ func (store *Store) ObservePeer(ctx context.Context, node protocol.Node) error {
  ON CONFLICT(node_id) DO NOTHING`, node.ID, node.Name, node.ID)
 	return err
 }
+
+func (store *Store) TrustTailnetPeer(ctx context.Context, node protocol.Node, deviceID, address string, port int) error {
+	if err := node.Validate(); err != nil {
+		return err
+	}
+	if deviceID == "" || !tailscale.IsIP(address) || port < 1 || port > 65535 {
+		return errors.New("automatic trust requires a verified Tailscale device")
+	}
+	_, err := store.db.ExecContext(ctx, `INSERT INTO peer_trust (node_id, name, state, tailscale_id, address, port)
+ SELECT ?, ?, 'trusted', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM local_node WHERE node_id = ?)
+ ON CONFLICT(node_id) DO UPDATE SET name = excluded.name, state = 'trusted', tailscale_id = excluded.tailscale_id, address = excluded.address, port = excluded.port
+ WHERE peer_trust.state != 'blocked' AND peer_trust.development = 0 AND (peer_trust.tailscale_id = '' OR peer_trust.tailscale_id = excluded.tailscale_id)`, node.ID, node.Name, deviceID, address, port, node.ID)
+	return err
+}

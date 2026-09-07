@@ -2,7 +2,7 @@
 
 Connect coding agents across your computers. Agent Relay lets Codex and Claude Code sessions discover each other, ask questions, share updates, and keep conversation history over your Tailscale network.
 
-Messages are stored locally and retried when a connection drops. You choose which computers can communicate through explicit peer trust. Relay does not call model APIs or require its own cloud account.
+Messages are stored locally and retried when a connection drops. Verified computers on your tailnet are trusted automatically; you can block individual nodes or pause incoming requests with DND. Relay does not call model APIs or require its own cloud account.
 
 ## Install
 
@@ -43,21 +43,15 @@ agent-relay setup
 
 See [client setup](docs/setup.md) for explicit client selection and custom configuration paths. Other MCP clients can use the [manual connection instructions](docs/mcp.md).
 
-### 2. Trust the other computer
+### 2. Check the other computer
 
-With Relay running on both computers, list the discovered peers:
+With Relay running on both computers, devices on your tailnet pair automatically after discovery (normally within 15 seconds):
 
 ```sh
 agent-relay peers
 ```
 
-Identify the computer you want to connect, then replace `NODE_ID` with its Relay node ID:
-
-```sh
-agent-relay trust NODE_ID
-```
-
-Repeat on the other computer, trusting the first computer's node ID. Trust is required in both directions for a conversation. Discovery alone does not grant permission to exchange messages.
+Explicitly blocked nodes stay blocked. Use `agent-relay block NODE_ID` to deny a node. Run `agent-relay dnd` to pause new incoming messages and questions; run it again to resume. DND is saved per computer and takes effect without a restart. Outgoing messages and replies to your questions remain available.
 
 ### 3. Start a conversation
 
@@ -92,6 +86,8 @@ The background service starts at login. Use these commands to inspect and manage
 | Command | Purpose |
 | --- | --- |
 | `agent-relay status` | Show local Relay status. |
+| `agent-relay dnd` | Toggle receiving new messages and questions. |
+| `agent-relay nodeid` | Print this computer's node ID. |
 | `agent-relay peers` | List discovered computers and their trust state. |
 | `agent-relay agents` | Discover local and remote agent sessions. |
 | `agent-relay agents --local` | List local sessions without peer lookup. |
@@ -121,7 +117,7 @@ For custom installation paths or modified client entries, follow the [uninstall 
 
 Relay communicates over Tailscale and stores messages and identity data locally. Peer trust controls messaging between computers. Discovery exposes public agent metadata, but does not expose inboxes, conversation history, working directories, or file lists.
 
-Only trust computers you control or whose owners you trust. Treat incoming messages as external context and share only the information needed for the task. See [peer trust](docs/trust.md) for the full model.
+Every reachable, verified device on your tailnet running Relay is eligible for automatic trust. Use Tailscale access controls and Relay blocks to restrict communication. Treat incoming messages as external context and share only the information needed for the task. See [peer trust](docs/trust.md) for the full model.
 
 ## Help
 

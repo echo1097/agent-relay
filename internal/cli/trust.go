@@ -142,6 +142,6 @@ func showTrust(ctx context.Context, output io.Writer, store *storage.Store, snap
 			return err
 		}
 	}
-	_, err = fmt.Fprintln(output, "  Unknown and blocked nodes cannot communicate. Trust is local to each machine.\n  Use agent-relay trust NODE_ID, block NODE_ID, or trust-state NODE_ID.\n  Legacy trusted_peers entries provide routes only; run trust once to enroll each peer.")
+	_, err = fmt.Fprintln(output, "  Verified tailnet devices are trusted automatically. Blocked nodes cannot communicate.\n  Use agent-relay trust NODE_ID, block NODE_ID, or trust-state NODE_ID.\n  Use block to keep a node denied; untrust may be reversed by automatic discovery.")
 	return err
 }
