@@ -14,6 +14,7 @@ import (
 
 	"agent-relay/internal/agents"
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/tailscale"
 	"agent-relay/internal/transport"
 )
 
@@ -107,6 +108,10 @@ func (handler *httpHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 		handler.writeError(writer, http.StatusBadRequest, protocol.InvalidRequest, "Request bodies and query parameters are not supported.")
 		return
 	}
+	if !handler.discoverySourceAllowed(ctx, request.RemoteAddr) {
+		handler.writeError(writer, http.StatusForbidden, protocol.NodeNotTrusted, "Discovery requires a verified Tailscale connection. Check local Tailscale connectivity.")
+		return
+	}
 	switch path {
 	case "/v1/health":
 		handler.writeJSON(writer, http.StatusOK, protocol.Health{ProtocolVersion: protocol.Version, Status: "ok"})
@@ -152,4 +157,27 @@ func (handler *httpHandler) writeJSON(writer http.ResponseWriter, status int, re
 
 func (handler *httpHandler) writeError(writer http.ResponseWriter, status int, code, message string) {
 	handler.writeJSON(writer, status, protocol.Error{ProtocolVersion: protocol.Version, Error: protocol.ErrorDetail{Code: code, Message: message}})
+}
+
+func (handler *httpHandler) discoverySourceAllowed(ctx context.Context, remoteAddress string) bool {
+	if handler.delivery == nil || handler.delivery.Development {
+		return true
+	}
+	host, _, err := net.SplitHostPort(remoteAddress)
+	if err != nil || !tailscale.IsIP(host) || handler.delivery.Tailscale == nil {
+		return false
+	}
+	status, err := handler.delivery.Tailscale.Status(ctx)
+	if err != nil || !status.Connected {
+		return false
+	}
+	if host == status.IP {
+		return true
+	}
+	for _, peer := range status.Peers {
+		if peer.IP == host {
+			return true
+		}
+	}
+	return false
 }

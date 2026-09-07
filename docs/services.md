@@ -11,7 +11,7 @@ agent-relay service restart
 agent-relay service uninstall
 ```
 
-Install copies the current executable to a stable per-user location, writes the service definition and installation record, enables startup at login, starts the daemon, and waits up to 12 seconds for the OS to report it running, a valid Relay HTTP response, and its daemon lock to be held. Failure to confirm startup returns an error with troubleshooting guidance; the installed supervisor can continue retrying. Use `agent-relay doctor --home PATH` to check peer connectivity.
+Install copies the current executable to a stable per-user location, writes the service definition and installation record, enables startup at login, starts the daemon, and waits up to 12 seconds for the OS to report it running, a Relay HTTP response matching the saved node identity and runtime version/address, and its daemon lock to be held. Failure to confirm startup returns an error with troubleshooting guidance; the installed supervisor can continue retrying. Use `agent-relay doctor --home PATH` to check peer connectivity.
 
 Keep Tailscale connected. The daemon retries every 10 seconds under supervision when Tailscale is unavailable at startup. Installation does not grant peer trust or change the Relay network configuration. Existing data and node identity are reused with the supplied `--home`. If a foreground daemon already owns that home, stop it gracefully before installing. The service does not kill or replace unowned processes.
 
@@ -100,3 +100,5 @@ AGENT_RELAY_SERVICE_TEST=1 AGENT_RELAY_TEST_BINARY="$PWD/bin/agent-relay" go tes
 ```
 
 Run this only in a login session where temporary user service installation is appropriate. The test reports its generated name for manual cleanup if the test process itself is forcibly interrupted.
+
+A fresh installation refuses an existing unowned private executable, and upgrades refuse symlinked or nonregular private executables before stopping the service. Review and move the conflicting file aside explicitly before retrying. A crash before an installation record is committed can leave such a file; it is retained for review rather than silently adopted.

@@ -104,3 +104,5 @@ Integration tests run the daemon on `127.0.0.1:0`, allowing the OS to select an 
 ## Message transport
 
 `POST /v1/messages` now accepts trusted peer delivery of regular messages and questions. See [message wire format, acknowledgment, validation, trust, timeouts and retry behavior](delivery.md). `POST /v1/responses` accepts linked responses using the same envelope plus `reply_to`. MCP remains deferred.
+
+Production discovery endpoints verify the connection source against connected local Tailscale status. The local Tailscale address and visible tailnet peers may read public discovery metadata without message trust. LAN, public, loopback and unrecognized sources are rejected in production even if they reach the bound address; forwarding headers do not grant access. Explicit loopback development mode remains available for tests.
