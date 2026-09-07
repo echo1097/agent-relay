@@ -44,7 +44,9 @@ func newFake(t *testing.T, platform string) *fakeManager {
 					return []byte("state = running"), nil
 				}
 				return []byte("state = waiting"), nil
-			case "bootstrap", "kickstart":
+			case "bootstrap":
+				fake.loaded = true
+			case "kickstart":
 				fake.loaded, fake.running = true, true
 			case "bootout":
 				fake.loaded, fake.running = false, false
@@ -302,6 +304,51 @@ func TestStartWaitsForHTTPReadiness(t *testing.T) {
 	defer cancel()
 	if err := fake.manager.Execute(ctx, "start", "", source, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "startup was not confirmed") {
 		t.Fatal(err)
+	}
+}
+
+func TestDarwinStartsPendingBootstrap(t *testing.T) {
+	fake := newFake(t, "darwin")
+	installed := &Installation{Home: fake.manager.UserHome, UnitPath: fake.manager.unitPath()}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := fake.manager.start(ctx, installed); err != nil {
+		t.Fatal(err)
+	}
+	calls := strings.Join(fake.calls, "\n")
+	bootstrap := strings.Index(calls, "launchctl bootstrap ")
+	kickstart := strings.Index(calls, "launchctl kickstart ")
+	if bootstrap < 0 || kickstart <= bootstrap || !fake.running {
+		t.Fatalf("pending service was not explicitly started: %s", calls)
+	}
+	fake.calls = nil
+	if err := fake.manager.start(ctx, installed); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range fake.calls {
+		if strings.Contains(call, "kickstart") || strings.Contains(call, "bootstrap") {
+			t.Fatalf("already running service started again: %s", call)
+		}
+	}
+}
+
+func TestReadinessStateTimeoutIncludesDiagnostics(t *testing.T) {
+	fake := newFake(t, "darwin")
+	run := fake.manager.Run
+	fake.manager.Run = func(ctx context.Context, command string, args ...string) ([]byte, error) {
+		if args[0] == "print" && fake.running {
+			return nil, context.DeadlineExceeded
+		}
+		return run(ctx, command, args...)
+	}
+	err := fake.manager.start(context.Background(), &Installation{Home: fake.manager.UserHome, UnitPath: fake.manager.unitPath()})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("lost timeout cause: %v", err)
+	}
+	for _, want := range []string{"startup was not confirmed", "service status --name relay-test", filepath.Join(fake.manager.UserHome, "logs"), "launchctl print"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %q: %v", want, err)
+		}
 	}
 }
 

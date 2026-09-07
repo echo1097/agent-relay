@@ -319,7 +319,10 @@ func (manager *Manager) start(ctx context.Context, installed *Installation) erro
 			if _, err := manager.command(ctx, "bootstrap", "gui/"+strconv.Itoa(manager.UserID), installed.UnitPath); err != nil {
 				return err
 			}
-		} else if !state.Running {
+		}
+		// Bootstrap can leave RunAtLoad jobs pending in an on-demand-only
+		// domain. Explicitly request a start without restarting a running job.
+		if !state.Running {
 			if _, err := manager.command(ctx, "kickstart", manager.target()); err != nil {
 				return err
 			}
@@ -334,10 +337,13 @@ func (manager *Manager) start(ctx context.Context, installed *Installation) erro
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	var readyErr error
+	startupError := func(err error) error {
+		return fmt.Errorf("service was submitted but daemon startup was not confirmed; run agent-relay service status --name %s; check Tailscale and logs in %s: %w", manager.Name, filepath.Join(installed.Home, "logs"), errors.Join(err, readyErr))
+	}
 	for {
 		state, err := manager.state(readyCtx)
 		if err != nil {
-			return err
+			return startupError(err)
 		}
 		if state.Running {
 			readyErr = manager.Ready(readyCtx, installed.Home)
@@ -353,7 +359,7 @@ func (manager *Manager) start(ctx context.Context, installed *Installation) erro
 		}
 		select {
 		case <-readyCtx.Done():
-			return fmt.Errorf("service was submitted but daemon startup was not confirmed; check Tailscale, %s, and service status: %w", filepath.Join(installed.Home, "logs", "agent-relay.log"), errors.Join(readyCtx.Err(), readyErr))
+			return startupError(readyCtx.Err())
 		case <-ticker.C:
 		}
 	}

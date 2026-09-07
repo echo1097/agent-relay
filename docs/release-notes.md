@@ -1,11 +1,13 @@
-# Agent Relay v0.1.2
+# Agent Relay v0.1.3
 
-Installation now shows short progress lines instead of full status and diagnostic reports. Errors still include the failed command's output.
+Fixed macOS installation when launchd registers the background service but defers its automatic launch.
 
-- Added terminal colors, with plain output when redirected or when `NO_COLOR` is set.
-- Installation ends with this computer's node ID and a pairing command to run on the other computer.
-- Added `agent-relay nodeid` to print the persistent local node ID, including support for `--home`.
-- Uninstall uses concise progress output and retains its existing data preservation behavior.
+- Explicitly starts newly registered services with `launchctl kickstart`, including in on-demand-only GUI domains.
+- Leaves already running services running without an extra start request.
+- Startup readiness failures now include the service status command and log directory while preserving the underlying error.
+- Added regression tests for deferred startup and readiness status timeouts.
+
+Validation: the full unit test suite, vet, build, and installer syntax checks passed. A real macOS service test confirmed installation and readiness, but its later automatic crash-recovery check failed on the test machine's on-demand-only GUI domain. This release does not resolve automatic recovery in that environment.
 
 Install or update with Tailscale connected:
 
