@@ -126,3 +126,41 @@ func TestUnsafeFile(t *testing.T) {
 		t.Fatal("accepted inaccessible path")
 	}
 }
+
+func TestRemoveOnlyMatchingEntry(t *testing.T) {
+	for _, clientName := range []string{"codex", "claude"} {
+		t.Run(clientName, func(t *testing.T) {
+			client := Client{Name: clientName, Path: filepath.Join(t.TempDir(), "config")}
+			original := []byte("title = 'keep'\n[mcp_servers.other]\ncommand = 'keep'\n")
+			if clientName == "claude" {
+				original = []byte(`{"title":"keep","mcpServers":{"other":{"command":"keep"}}}`)
+			}
+			if err := os.WriteFile(client.Path, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Configure(client, "/bin/relay", "/relay", false); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := os.ReadFile(client.Path)
+			if _, err := Remove(client, "/other/relay", "/relay"); err == nil {
+				t.Fatal("removed a different installation")
+			}
+			after, _ := os.ReadFile(client.Path)
+			if !bytes.Equal(before, after) {
+				t.Fatal("conflict changed config")
+			}
+			result, err := Remove(client, "/bin/relay", "/relay")
+			if err != nil || !result.Changed || result.Backup == "" {
+				t.Fatalf("%+v %v", result, err)
+			}
+			after, _ = os.ReadFile(client.Path)
+			if bytes.Contains(after, []byte("agent-relay")) || !bytes.Contains(after, []byte("other")) || !bytes.Contains(after, []byte("keep")) {
+				t.Fatal(string(after))
+			}
+			result, err = Remove(client, "/bin/relay", "/relay")
+			if err != nil || result.Changed {
+				t.Fatalf("%+v %v", result, err)
+			}
+		})
+	}
+}

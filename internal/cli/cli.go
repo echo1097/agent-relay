@@ -85,6 +85,10 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(errorOutput)
 	home := flags.String("home", "", "application directory")
+	installation := false
+	if command == "doctor" {
+		flags.BoolVar(&installation, "installation", false, "report pending first-time agent, client, and peer setup as NEXT steps")
+	}
 	commandArgs := args[1:]
 	var registration agents.Registration
 	if command == "mcp" {
@@ -141,7 +145,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return err
 	}
 	if command == "doctor" {
-		return runDiagnostics(ctx, output, paths, version, client)
+		return runDiagnostics(ctx, output, paths, version, client, installation)
 	}
 	cfg, err := config.Load(paths.Config)
 	if err != nil {

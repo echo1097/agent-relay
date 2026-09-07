@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agent-relay/internal/config"
+	"agent-relay/internal/fileedit"
 	"agent-relay/internal/setup"
 )
 
@@ -19,7 +20,7 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 		clientName, args = args[0], args[1:]
 	}
 	if clientName == "help" {
-		_, err := fmt.Fprintln(output, "Usage: agent-relay setup [codex|claude] [--home PATH] [--config PATH] [--replace]\nDetect installed clients and configure the agent-relay stdio MCP server.\n--config requires an explicit client. --replace replaces a conflicting agent-relay entry.")
+		_, err := fmt.Fprintln(output, "Usage: agent-relay setup [codex|claude] [--home PATH] [--config PATH] [--replace|--remove] [--if-present]\nDetect installed clients and configure the agent-relay stdio MCP server.\n--config requires an explicit client. --replace replaces a conflicting agent-relay entry.")
 		return err
 	}
 	if clientName != "" && clientName != "codex" && clientName != "claude" {
@@ -30,11 +31,16 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 	home := flags.String("home", "", "Relay application directory; use the same home as the daemon")
 	configPath := flags.String("config", "", "explicit client config file (requires codex or claude)")
 	replace := flags.Bool("replace", false, "replace a conflicting agent-relay entry after backing up")
+	remove := flags.Bool("remove", false, "remove only a matching Agent Relay entry after backing up")
+	ifPresent := flags.Bool("if-present", false, "succeed when no supported clients are detected")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if *remove && *replace {
+		return errors.New("--remove and --replace cannot be combined")
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected setup arguments")
@@ -79,12 +85,21 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 			}
 		}
 		count++
-		result, err := setup.Configure(client, binaryPath, paths.Home, *replace)
+		var result fileedit.Result
+		if *remove {
+			result, err = setup.Remove(client, binaryPath, paths.Home)
+		} else {
+			result, err = setup.Configure(client, binaryPath, paths.Home, *replace)
+		}
 		if result.Backup != "" {
 			fmt.Fprintf(output, "%s backup: %s\n", client.Name, result.Backup)
 		}
 		if err != nil {
 			setupErrors = errors.Join(setupErrors, fmt.Errorf("%s: %w", client.Name, err))
+			continue
+		}
+		if *remove {
+			fmt.Fprintf(output, "%s: matching Agent Relay entry removed or already absent\n", client.Name)
 			continue
 		}
 		state := "already configured"
@@ -93,7 +108,7 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 		}
 		fmt.Fprintf(output, "%s: %s\n  Config: %s\n  Server: agent-relay\n  Command: %s mcp --home %s\n", client.Name, state, client.Path, binaryPath, paths.Home)
 	}
-	if count == 0 {
+	if count == 0 && !*ifPresent {
 		return errors.New("no supported clients detected; install Codex or Claude Code, or run setup codex/setup claude explicitly")
 	}
 	if setupErrors != nil {

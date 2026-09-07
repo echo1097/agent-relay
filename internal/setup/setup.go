@@ -68,7 +68,14 @@ func Configure(client Client, binaryPath, relayHome string, replace bool) (filee
 	})
 }
 
-func edit(data []byte, clientName, binaryPath, relayHome string, replace bool) ([]byte, error) {
+func Remove(client Client, binaryPath, relayHome string) (fileedit.Result, error) {
+	return fileedit.Update(client.Path, func(data []byte) ([]byte, error) {
+		return edit(data, client.Name, binaryPath, relayHome, false, true)
+	})
+}
+
+func edit(data []byte, clientName, binaryPath, relayHome string, replace bool, removeMode ...bool) ([]byte, error) {
+	remove := len(removeMode) > 0 && removeMode[0]
 	root := map[string]any{}
 	key := "mcp_servers"
 	if clientName == "codex" {
@@ -109,14 +116,25 @@ func edit(data []byte, clientName, binaryPath, relayHome string, replace bool) (
 		entry["type"] = "stdio"
 	}
 	if current, exists := servers["agent-relay"]; exists {
-		if reflect.DeepEqual(current, entry) {
+		if remove {
+			if !reflect.DeepEqual(current, entry) {
+				return nil, errors.New("agent-relay MCP entry has different settings; remove it manually after review")
+			}
+		} else if reflect.DeepEqual(current, entry) {
 			return data, nil
 		}
-		if !replace {
+		if !remove && !replace {
 			return nil, errors.New("agent-relay MCP entry already exists with different settings; review it, then use --replace to replace only that entry")
 		}
 	}
-	servers["agent-relay"] = entry
+	if remove {
+		if _, exists := servers["agent-relay"]; !exists {
+			return data, nil
+		}
+		delete(servers, "agent-relay")
+	} else {
+		servers["agent-relay"] = entry
+	}
 	root[key] = servers
 	if clientName == "claude" {
 		encoded, err := json.MarshalIndent(root, "", "  ")

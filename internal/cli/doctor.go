@@ -39,7 +39,13 @@ func (report *doctorReport) check(name string, ok bool, detail, remedy string) {
 	}
 }
 
-func doctor(ctx context.Context, output io.Writer, paths config.Paths, version string, client tailscale.Client, prober discovery.Prober, clients []setup.Client) (returnErr error) {
+func (report *doctorReport) next(name, remedy string) {
+	_, err := fmt.Fprintf(report.output, "NEXT %s: %s\n", name, remedy)
+	report.writeErr = errors.Join(report.writeErr, err)
+}
+
+func doctor(ctx context.Context, output io.Writer, paths config.Paths, version string, client tailscale.Client, prober discovery.Prober, clients []setup.Client, installationMode ...bool) (returnErr error) {
+	installation := len(installationMode) > 0 && installationMode[0]
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	report := &doctorReport{output: output}
@@ -88,7 +94,11 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 		}
 		report.check("Persistent node identity", validNode, nodeID, "Restore the original database from backup. For a new installation only, run agent-relay status with this --home to create an identity.")
 		count, agentErr := store.AgentCount(ctx, nodeID)
-		report.check("Local registered agents", validNode && agentErr == nil && count > 0, strconv.Itoa(count), "Connect a configured MCP client, or run agent-relay agents register with this --home. Offline registrations remain valid.")
+		if installation && validNode && agentErr == nil && count == 0 {
+			report.next("Local registered agents", "Reconnect a configured MCP client to register an agent.")
+		} else {
+			report.check("Local registered agents", validNode && agentErr == nil && count > 0, strconv.Itoa(count), "Connect a configured MCP client, or run agent-relay agents register with this --home. Offline registrations remain valid.")
+		}
 		var trustErr error
 		trustedPeers, trustErr = store.ListPeerTrust(ctx)
 		report.check("Peer trust database", trustErr == nil, "stored trust decisions", "Check migrations and database integrity; inspect agent-relay trust-state with this --home.")
@@ -99,10 +109,12 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 	}
 
 	configured := 0
+	detected := 0
 	for _, mcpClient := range clients {
 		if !mcpClient.Detected {
 			continue
 		}
+		detected++
 		checkErr := setup.Check(mcpClient, paths.Home)
 		detail := mcpClient.Path
 		if checkErr != nil {
@@ -112,7 +124,9 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 		}
 		report.check("MCP configuration ("+mcpClient.Name+")", checkErr == nil, detail, "Run agent-relay setup "+mcpClient.Name+" --home "+strconv.Quote(paths.Home)+". Review conflicting entries before using --replace, then restart the MCP client.")
 	}
-	if configured == 0 {
+	if installation && detected == 0 {
+		report.next("MCP configuration", "Install Codex or Claude Code, then run agent-relay setup with this --home.")
+	} else if configured == 0 {
 		report.check("MCP configuration", false, "no usable client configuration detected", "Install Codex or Claude Code and run agent-relay setup with this --home.")
 	}
 
@@ -153,7 +167,11 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 			report.check("Peer protocol "+peer.IP, false, peer.State, "Upgrade both Relay nodes to compatible versions and verify the configured port serves Agent Relay.")
 		}
 	}
-	report.check("Discovered Agent Relay peers", configErr == nil && refreshErr == nil && peerCount > 0, fmt.Sprintf("%d online", peerCount), "Start Relay on another tailnet device. Check matching ports, protocol versions, Tailscale ACLs and firewalls.")
+	if installation && configErr == nil && refreshErr == nil && peerCount == 0 {
+		report.next("Discovered Agent Relay peers", "Install Relay on another tailnet device using the same port.")
+	} else {
+		report.check("Discovered Agent Relay peers", configErr == nil && refreshErr == nil && peerCount > 0, fmt.Sprintf("%d online", peerCount), "Start Relay on another tailnet device. Check matching ports, protocol versions, Tailscale ACLs and firewalls.")
+	}
 	trustedCount := 0
 	for _, peer := range trustedPeers {
 		if peer.State != storage.Trusted {
@@ -177,13 +195,15 @@ func doctor(ctx context.Context, output io.Writer, paths config.Paths, version s
 		}
 		report.check("Trusted peer reachability "+peer.NodeID, configErr == nil && probeErr == nil && hello.Validate() == nil && hello.Node.ID == peer.NodeID, address, "Start the remote daemon and check Tailscale ACLs, firewall and its saved port. Inspect trust-state; if device or Relay identity changed, verify the peer before trusting it again.")
 	}
-	if trustedCount == 0 {
+	if installation && trustedCount == 0 {
+		report.next("Trusted peer reachability", "Inspect agent-relay peers, verify the other device, then explicitly trust its node ID on both machines.")
+	} else if trustedCount == 0 {
 		report.check("Trusted peer reachability", false, "no trusted peers", "Inspect agent-relay peers and explicitly run agent-relay trust NODE_ID with this --home for a verified peer.")
 	}
 	return nil
 }
 
-func runDiagnostics(ctx context.Context, output io.Writer, paths config.Paths, version string, client tailscale.Client) error {
+func runDiagnostics(ctx context.Context, output io.Writer, paths config.Paths, version string, client tailscale.Client, installation bool) error {
 	env, err := setup.LocalEnvironment()
 	if err != nil {
 		return err
@@ -192,5 +212,5 @@ func runDiagnostics(ctx context.Context, output io.Writer, paths config.Paths, v
 	if err != nil {
 		return err
 	}
-	return doctor(ctx, output, paths, version, client, discovery.NewProber(), clients)
+	return doctor(ctx, output, paths, version, client, discovery.NewProber(), clients, installation)
 }

@@ -168,3 +168,16 @@ func TestDoctorHealthyConfiguration(t *testing.T) {
 		t.Fatal(output.String())
 	}
 }
+
+func TestInstallationDoctorDoesNotHideBrokenInstallation(t *testing.T) {
+	paths, _ := config.Resolve(t.TempDir())
+	var output bytes.Buffer
+	if err := doctor(context.Background(), &output, paths, "test", testClient{}, doctorProber{}, nil, true); err == nil {
+		t.Fatal("broken installation passed")
+	}
+	for _, label := range []string{"FAIL Database readability", "FAIL Tailnet connectivity", "FAIL Daemon running", "NEXT MCP configuration", "NEXT Trusted peer reachability"} {
+		if !strings.Contains(output.String(), label) {
+			t.Fatalf("missing %s: %s", label, output.String())
+		}
+	}
+}
