@@ -177,3 +177,10 @@ func (registry *Registry) OfflineAll(ctx context.Context) error {
 	}
 	return err
 }
+
+func (registry *Registry) Update(ctx context.Context, agentID string, status Status, metadata Metadata) (Agent, error) {
+	if !status.Valid() {
+		return Agent{}, errors.New("agent status must be online, busy, idle, or offline")
+	}
+	return registry.store.UpdateAgent(ctx, registry.nodeID, agentID, &status, &metadata, registry.now().UTC())
+}
