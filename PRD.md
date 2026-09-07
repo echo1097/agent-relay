@@ -16,7 +16,7 @@ The repository currently implements the project foundation, local agent registry
 | Phase 7: Trust | Implemented: SQLite unknown/trusted/blocked states, stable Tailscale device bindings, live request and retry enforcement, CLI trust/block/inspection, and diagnostics. |
 | Phase 8: MCP | Implemented: eight stdio tools, automatic registration, heartbeats, session access checks, peer lookup, and MCP conversation tests. |
 | Phase 9: Services | Implemented: macOS launchd and Linux systemd user lifecycle commands, stable private binary installation, backups, and graceful restarts. |
-| Phase 10: Installer | Codex/Claude Code local MCP setup is implemented. Download/checksum installer remains pending. |
+| Phase 10: Installer | Unix download/checksum installer, four compiled release targets, GitHub Pages hosting, service startup, installation diagnostics, and safe uninstall are implemented. See docs/install.md. |
 | Phase 11: Hardening | Doctor diagnostics and operational hardening implemented and tested; see [doctor and recovery](docs/doctor.md). |
 
 ### Built: project foundation
@@ -1828,7 +1828,7 @@ Diagnostics should always provide a useful remediation when possible.
 Canonical Unix installation:
 
 ```bash
-curl -fsSL https://agentrelay.dev/install.sh | sh
+curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh
 ```
 
 Installer responsibilities:
@@ -2509,7 +2509,7 @@ Windows service later if necessary
 
 ## Phase 10: Installer
 
-Status: local MCP configuration through `agent-relay setup`, `setup codex`, and `setup claude` is implemented with backups and safe conflict handling. See [exact setup behavior](docs/setup.md). Binary download and checksum installation remain pending.
+Status: implemented for macOS/Linux arm64/amd64 with compiled GitHub Release assets, SHA-256 verification, GitHub Pages hosting, Tailscale preflight, initialization, login services, safe MCP setup, installation diagnostics, and uninstall. See [installation and recovery](docs/install.md).
 
 Build:
 

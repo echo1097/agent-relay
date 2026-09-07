@@ -1,5 +1,13 @@
 # Agent Relay
 
+Install on macOS or Linux with Tailscale already connected:
+
+```sh
+curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh
+```
+
+See [installation, upgrades, and uninstall](docs/install.md). Downloads are compiled binaries from GitHub Releases; no development tools are required.
+
 Local agent communication for the [Agent Relay PRD](PRD.md), implemented in Go. Agent Relay provides Tailscale peer discovery, [persistent peer trust](docs/trust.md), [durable messaging](docs/delivery.md), and [MCP tools for coding agents](docs/mcp.md) with automatic session registration. It includes [Codex and Claude Code setup](docs/setup.md) and [macOS/Linux background services](docs/services.md). A download installer remains pending.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.

@@ -1,0 +1,42 @@
+name: Release binaries
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify
+        run: |
+          go test ./...
+          go vet ./...
+          sh -n installers/install.sh
+      - name: Build compiled Unix binaries
+        env:
+          releaseVersion: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          for osName in darwin linux; do
+            for cpuArch in arm64 amd64; do
+              CGO_ENABLED=0 GOOS="$osName" GOARCH="$cpuArch" go build -trimpath -ldflags "-s -w -X main.version=$releaseVersion" -o "dist/agent-relay_${osName}_${cpuArch}" ./cmd/agent-relay
+            done
+          done
+          cp installers/install.sh dist/install.sh
+          cd dist
+          sha256sum agent-relay_* install.sh > SHA256SUMS
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          releaseVersion: ${{ github.ref_name }}
+        run: |
+          gh release create "$releaseVersion" --verify-tag --draft --title "Agent Relay $releaseVersion" --notes-file docs/release-notes.md
+          gh release upload "$releaseVersion" dist/*
+          gh release edit "$releaseVersion" --draft=false --latest

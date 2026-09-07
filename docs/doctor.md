@@ -12,6 +12,8 @@ MCP checks use the same client detection and paths as `setup`, including `CODEX_
 
 No registered agents, no discovered Relay peers, or no trusted peers is reported as incomplete setup with a nonzero exit. Offline registered agents count as valid registrations. Ordinary tailnet devices without Relay are not individually reported as failures. Incompatible or malformed Relay peers are reported with upgrade/port guidance. Trusted reachability uses the saved Tailscale device identity and saved peer port, and validates the returned Relay node ID. A successful hello does not prove that the remote owner has reciprocally trusted the local node.
 
+The Unix installer runs `doctor --installation`. This mode reports first-time missing agents, undetected clients, missing peers, and absent trust as NEXT steps. Existing broken client entries, storage errors, connectivity failures, listener failures, and unreachable trusted peers still fail. Plain doctor retains its strict behavior.
+
 ## Recovery behavior
 
 - Shutdown stops new HTTP work, cancels discovery and delivery loops, and allows active HTTP writes up to five seconds to finish. Forced HTTP closure cancels request contexts; handlers and background workers finish before SQLite is closed and the daemon lock is released.

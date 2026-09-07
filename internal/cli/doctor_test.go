@@ -181,3 +181,71 @@ func TestInstallationDoctorDoesNotHideBrokenInstallation(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallationDoctorFirstRun(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	paths, _ := config.Resolve(t.TempDir())
+	store, err := storage.Open(ctx, paths.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	node, err := store.Node(ctx, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := agents.New(store, node.ID, agents.Options{OfflineAfter: time.Minute, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := make(chan net.Addr, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Address: "127.0.0.1:0", Node: protocol.PublicNode(node.ID, node.Name), Version: "test", Ready: func(address net.Addr) { ready <- address }})
+	}()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	var address net.Addr
+	select {
+	case address = <-ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not start")
+	}
+	_, port, err := net.SplitHostPort(address.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := "[network]\ndevelopment = true\nbind_address = '127.0.0.1'\nport = " + port + "\n"
+	if err := os.WriteFile(paths.Config, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := setup.Client{Name: "codex", Path: filepath.Join(paths.Home, "codex.toml"), Detected: true}
+	if _, err := setup.Configure(client, binary, paths.Home, false); err != nil {
+		t.Fatal(err)
+	}
+	local := protocol.Hello{Protocol: protocol.Name, ProtocolVersion: 1, Node: protocol.PublicNode(node.ID, node.Name), Version: "test"}
+	remote := local
+	remote.Node = protocol.PublicNode(node.ID, "remote")
+	var output bytes.Buffer
+	if err := doctor(ctx, &output, paths, "test", connectedClient{}, doctorProber{local: local, remote: remote}, []setup.Client{client}, true); err != nil {
+		t.Fatalf("%v\n%s", err, output.String())
+	}
+	for _, label := range []string{"NEXT Local registered agents", "NEXT Discovered Agent Relay peers", "NEXT Trusted peer reachability"} {
+		if !strings.Contains(output.String(), label) {
+			t.Fatalf("missing %s: %s", label, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "FAIL") {
+		t.Fatal(output.String())
+	}
+}
