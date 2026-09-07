@@ -31,7 +31,7 @@ func TestCommands(t *testing.T) {
 	if err := runWithClient(context.Background(), []string{"status", "--home", home}, &output, &output, "test-version", testClient{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Stopped", "node_", "Schema version: 3", "test-version"} {
+	for _, expected := range []string{"Stopped", "node_", "Schema version: 4", "test-version"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %q in %s", expected, output.String())
 		}

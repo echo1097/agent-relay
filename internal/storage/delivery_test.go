@@ -73,3 +73,34 @@ func TestDurableDeliveryQueue(t *testing.T) {
 		t.Fatalf("expiration: %+v %v", saved, err)
 	}
 }
+
+func TestRemoteReceiptRollbackAndOwnership(t *testing.T) {
+	store, _, now, _ := messageFixture(t)
+	ctx := context.Background()
+	message := incomingMessage(now, "remote-message", messaging.MessageType)
+	message.ConversationID = "new-conversation"
+	invalid := message
+	invalid.RecipientAgentID = "missing"
+	if _, _, err := store.ReceiveRemote(ctx, invalid, "peer", now); !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("recipient: %v", err)
+	}
+	if _, err := store.GetConversation(ctx, message.ConversationID); !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("orphan conversation: %v", err)
+	}
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, _, err := store.ReceiveRemote(canceledCtx, message, "peer", now); err == nil {
+		t.Fatal("canceled write accepted")
+	}
+	if _, _, err := store.ReceiveRemote(ctx, message, "peer", now); err != nil {
+		t.Fatal(err)
+	}
+	message.ID = "hijack"
+	message.ConversationID = "hijack-conversation"
+	if _, _, err := store.ReceiveRemote(ctx, message, "different-peer", now); !errors.Is(err, messaging.ErrConflict) {
+		t.Fatalf("remote agent ownership: %v", err)
+	}
+	if _, err := store.GetConversation(ctx, message.ConversationID); !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("hijack orphan: %v", err)
+	}
+}

@@ -19,6 +19,7 @@ import (
 	"agent-relay/internal/protocol"
 	"agent-relay/internal/storage"
 	"agent-relay/internal/tailscale"
+	"agent-relay/internal/transport"
 )
 
 const usage = `Agent Relay
@@ -31,6 +32,7 @@ Commands:
   peers     Show cached peer discovery and last-seen state
   doctor    Check Tailscale and live peer reachability
   agents    List, inspect, register, or update local agents (agents help)
+  messages  Queue messages or inspect local inboxes (messages help)
   version   Print the binary version
   help      Show this help
 
@@ -61,7 +63,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		}
 		_, err := fmt.Fprintf(output, "agent-relay %s\n", version)
 		return err
-	case "daemon", "status", "agents", "peers", "doctor":
+	case "daemon", "status", "agents", "peers", "doctor", "messages":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -69,6 +71,17 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	flags.SetOutput(errorOutput)
 	home := flags.String("home", "", "application directory")
 	commandArgs := args[1:]
+	var messageFlags *messageOptions
+	if command == "messages" {
+		if len(commandArgs) > 0 && commandArgs[0] == "help" {
+			_, err := fmt.Fprint(output, messageUsage)
+			return err
+		}
+		messageFlags, commandArgs, returnErr = messageArguments(flags, commandArgs)
+		if returnErr != nil {
+			return returnErr
+		}
+	}
 	var agentFlags *agentOptions
 	if command == "agents" {
 		if len(commandArgs) > 0 && commandArgs[0] == "help" {
@@ -127,6 +140,11 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if err != nil {
 		return err
 	}
+	if command == "messages" {
+		service := transport.New(store, node.ID, "", cfg, logger)
+		defer service.Client.CloseIdleConnections()
+		return runMessages(ctx, service, messageFlags, output)
+	}
 	if command == "daemon" {
 		address, err := listenAddress(ctx, cfg, client)
 		if err != nil {
@@ -136,11 +154,12 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		if err != nil {
 			return err
 		}
+		localIP := boundIP
 		if cfg.Network.Development {
 			boundIP = ""
 		}
 		manager := discovery.Manager{Client: client, Prober: discovery.NewProber(), Port: cfg.Network.Port, LocalID: node.ID, BoundIP: boundIP, Path: filepath.Join(paths.Home, "peers.json"), Logger: logger}
-		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Address: address, Node: protocol.PublicNode(node.ID, node.Name), Version: version, Background: func(runCtx context.Context) {
+		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Delivery: transport.New(store, node.ID, localIP, cfg, logger), Address: address, Node: protocol.PublicNode(node.ID, node.Name), Version: version, Background: func(runCtx context.Context) {
 			manager.Run(runCtx, time.Duration(cfg.Discovery.IntervalSeconds)*time.Second)
 		}})
 	}

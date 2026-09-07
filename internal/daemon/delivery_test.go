@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -365,5 +366,50 @@ func TestDaemonExpiresUndeliveredQuestion(t *testing.T) {
 	due, err := nodeA.store.DueDeliveries(ctx, time.Now().Add(time.Hour))
 	if err != nil || len(due) != 0 {
 		t.Fatalf("expired question retried: %+v %v", due, err)
+	}
+}
+
+func TestReceiptNeverAcknowledgesFailedWrite(t *testing.T) {
+	nodeA := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeB := makeDeliveryNode(t, "127.0.0.1:0")
+	trustNode(t, nodeB, nodeA)
+	messageID, err := messaging.NewID("msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationID, err := messaging.NewID("conv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := protocol.WireMessage(messaging.Message{ID: messageID, ConversationID: conversationID, SenderAgentID: nodeA.agent.ID, RecipientAgentID: nodeB.agent.ID, Type: messaging.MessageType, Text: "must commit first", CreatedAt: time.Now().UTC()})
+	data, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := newHTTPServer(nodeB.registry, HTTPOptions{Node: protocol.PublicNode(nodeB.node.ID, "test"), Version: "test", Delivery: nodeB.service}, nodeB.service.Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"canceled", "closed storage"} {
+		t.Run(mode, func(t *testing.T) {
+			request := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(data))
+			request.RemoteAddr = "127.0.0.1:12345"
+			request.Header.Set(protocol.NodeHeader, nodeA.node.ID)
+			request.Header.Set("Content-Type", "application/json")
+			expected := 500
+			if mode == "canceled" {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				request = request.WithContext(ctx)
+				expected = 504
+			} else if err := nodeB.store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			writer := httptest.NewRecorder()
+			server.Handler.ServeHTTP(writer, request)
+			if writer.Code != expected {
+				t.Fatalf("failed write response: %d %s", writer.Code, writer.Body)
+			}
+		})
 	}
 }
