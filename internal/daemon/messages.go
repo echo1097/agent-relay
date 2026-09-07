@@ -54,6 +54,10 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 		handler.writeError(writer, 400, protocol.InvalidRequest, "The message is invalid.")
 		return
 	}
+	if (request.URL.Path == "/v1/responses") != (message.Type == messaging.Response) {
+		handler.writeError(writer, 400, protocol.InvalidRequest, "Use the endpoint matching the message type.")
+		return
+	}
 	saved, _, err := handler.delivery.Store.ReceiveRemote(request.Context(), message.Local(), nodeIDs[0], time.Now().UTC())
 	if err != nil {
 		status, code, detail := 500, protocol.InternalError, "The message could not be stored."
@@ -62,7 +66,10 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 			status, code, detail = 504, protocol.RequestTimeout, "The request timed out."
 		case errors.Is(err, messaging.ErrNotFound):
 			status, code, detail = 404, protocol.AgentNotFound, "The recipient is not registered on this node."
-		case errors.Is(err, messaging.ErrConflict):
+			if message.Type == messaging.Response {
+				code, detail = protocol.MessageNotFound, "The original message or recipient does not exist on this node."
+			}
+		case errors.Is(err, messaging.ErrTransition), errors.Is(err, messaging.ErrConflict):
 			status, code, detail = 409, protocol.MessageConflict, "The message conflicts with an existing message or conversation."
 		case errors.Is(err, messaging.ErrExpired):
 			status, code, detail = 410, protocol.MessageExpired, "The message has expired."

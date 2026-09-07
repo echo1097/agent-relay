@@ -86,7 +86,7 @@ func (handler *httpHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 		}
 	}
 	path := request.URL.Path
-	if path == "/v1/messages" {
+	if path == "/v1/messages" || path == "/v1/responses" {
 		handler.receiveMessage(writer, request.WithContext(ctx))
 		return
 	}

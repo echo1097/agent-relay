@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"agent-relay/internal/messaging"
@@ -124,6 +125,15 @@ func (store *Store) ExpireDeliveries(ctx context.Context, now time.Time) error {
 	if _, err := store.ExpireRequests(ctx, now); err != nil {
 		return err
 	}
-	_, err := store.db.ExecContext(ctx, `UPDATE messages SET status = 'failed' WHERE type = 'message' AND status IN ('created', 'sending', 'pending_delivery') AND id IN (SELECT message_id FROM outbox WHERE deadline <= ?)`, messageTime(now))
+	_, err := store.db.ExecContext(ctx, `UPDATE messages SET status = 'failed' WHERE type IN ('message', 'response') AND status IN ('created', 'sending', 'pending_delivery') AND id IN (SELECT message_id FROM outbox WHERE deadline <= ?)`, messageTime(now))
 	return err
+}
+
+func (store *Store) ConversationPeer(ctx context.Context, conversationID string) (string, error) {
+	var peerID string
+	err := store.db.QueryRowContext(ctx, "SELECT node_id FROM conversation_peers WHERE conversation_id = ?", conversationID).Scan(&peerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", messaging.ErrNotFound
+	}
+	return peerID, err
 }

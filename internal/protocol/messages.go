@@ -11,6 +11,7 @@ import (
 const NodeHeader = "X-Agent-Relay-Node-ID"
 const NodeNotTrusted = "NODE_NOT_TRUSTED"
 const AgentNotFound = "AGENT_NOT_FOUND"
+const MessageNotFound = "MESSAGE_NOT_FOUND"
 const MessageConflict = "MESSAGE_CONFLICT"
 const MessageExpired = "MESSAGE_EXPIRED"
 const MaxMessageBytes = 64 * 1024
@@ -21,6 +22,7 @@ type Message struct {
 	ConversationID   string         `json:"conversation_id"`
 	SenderAgentID    string         `json:"sender_agent_id"`
 	RecipientAgentID string         `json:"recipient_agent_id"`
+	ReplyTo          string         `json:"reply_to,omitempty"`
 	Type             messaging.Type `json:"type"`
 	CreatedAt        time.Time      `json:"created_at"`
 	ExpiresAt        *time.Time     `json:"expires_at,omitempty"`
@@ -40,18 +42,21 @@ type DeliveryAck struct {
 }
 
 func WireMessage(message messaging.Message) Message {
-	return Message{ProtocolVersion: Version, ID: message.ID, ConversationID: message.ConversationID, SenderAgentID: message.SenderAgentID, RecipientAgentID: message.RecipientAgentID, Type: message.Type, CreatedAt: message.CreatedAt, ExpiresAt: message.ExpiresAt, Content: Content{Text: message.Text}}
+	return Message{ProtocolVersion: Version, ID: message.ID, ConversationID: message.ConversationID, SenderAgentID: message.SenderAgentID, RecipientAgentID: message.RecipientAgentID, Type: message.Type, ReplyTo: message.ReplyTo, CreatedAt: message.CreatedAt, ExpiresAt: message.ExpiresAt, Content: Content{Text: message.Text}}
 }
 
 func (message Message) Local() messaging.Message {
-	return messaging.Message{ID: message.ID, ConversationID: message.ConversationID, SenderAgentID: message.SenderAgentID, RecipientAgentID: message.RecipientAgentID, Type: message.Type, CreatedAt: message.CreatedAt, ExpiresAt: message.ExpiresAt, Text: message.Content.Text}
+	return messaging.Message{ID: message.ID, ConversationID: message.ConversationID, SenderAgentID: message.SenderAgentID, RecipientAgentID: message.RecipientAgentID, Type: message.Type, ReplyTo: message.ReplyTo, CreatedAt: message.CreatedAt, ExpiresAt: message.ExpiresAt, Text: message.Content.Text}
 }
 
 func (message Message) Validate() error {
 	if message.ProtocolVersion != Version || !validID(message.ID, "msg_") || !validID(message.ConversationID, "conv_") || !validID(message.SenderAgentID, "agent_") || !validID(message.RecipientAgentID, "agent_") {
 		return messaging.ErrInvalid
 	}
-	if message.Type != messaging.MessageType && message.Type != messaging.Question || !utf8.ValidString(message.Content.Text) || len(message.Content.Text) > MaxMessageBytes {
+	if message.Type != messaging.MessageType && message.Type != messaging.Question && message.Type != messaging.Response || !utf8.ValidString(message.Content.Text) || len(message.Content.Text) > MaxMessageBytes {
+		return messaging.ErrInvalid
+	}
+	if message.Type == messaging.Response && !validID(message.ReplyTo, "msg_") {
 		return messaging.ErrInvalid
 	}
 	if message.Type == messaging.Question && message.ExpiresAt == nil {

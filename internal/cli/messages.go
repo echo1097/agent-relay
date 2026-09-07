@@ -15,6 +15,7 @@ import (
 const messageUsage = `Usage: agent-relay messages <action> [--home PATH]
 
 send --from ID --to ID --peer NODE_ID --text TEXT [--type message|question] [--conversation ID]
+respond --from ID --id QUESTION_ID --text TEXT
 get --id MESSAGE_ID
 inbox --agent ID
 history --conversation ID
@@ -49,6 +50,10 @@ func messageArguments(flags *flag.FlagSet, args []string) (*messageOptions, []st
 		flags.StringVar(&options.text, "text", "", "message text")
 		flags.StringVar(&options.kind, "type", "message", "message or question")
 		flags.StringVar(&options.conversation, "conversation", "", "existing conversation ID")
+	case "respond":
+		flags.StringVar(&options.from, "from", "", "local responding agent ID")
+		flags.StringVar(&options.id, "id", "", "original question ID")
+		flags.StringVar(&options.text, "text", "", "response text")
 	case "get":
 		flags.StringVar(&options.id, "id", "", "message ID")
 	case "inbox":
@@ -70,6 +75,11 @@ func runMessages(ctx context.Context, service *transport.Service, options *messa
 	switch options.action {
 	case "send":
 		result, err = service.Queue(ctx, messaging.Message{SenderAgentID: options.from, RecipientAgentID: options.to, Text: options.text, Type: messaging.Type(options.kind), ConversationID: options.conversation}, options.peer)
+	case "respond":
+		if options.from == "" || options.id == "" {
+			return errors.New("--from and --id are required")
+		}
+		result, err = service.Respond(ctx, options.from, options.id, options.text)
 	case "get":
 		if options.id == "" {
 			return errors.New("--id is required")

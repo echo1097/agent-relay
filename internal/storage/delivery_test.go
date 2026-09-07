@@ -104,3 +104,39 @@ func TestRemoteReceiptRollbackAndOwnership(t *testing.T) {
 		t.Fatalf("hijack orphan: %v", err)
 	}
 }
+
+func TestQueuedResponseIsAtomicAndExpires(t *testing.T) {
+	store, _, now, _ := messageFixture(t)
+	ctx := context.Background()
+	question := incomingMessage(now, "question", messaging.Question)
+	if _, _, err := store.ReceiveRemote(ctx, question, "peer", now); err != nil {
+		t.Fatal(err)
+	}
+	response := messaging.Message{ID: "response", ConversationID: question.ConversationID, SenderAgentID: "local", RecipientAgentID: "remote", Type: messaging.Response, ReplyTo: question.ID, Text: "yes", CreatedAt: now.Add(time.Minute)}
+	deadline := now.Add(time.Hour)
+	if _, inserted, err := store.QueueMessage(ctx, response, "peer", response.CreatedAt, deadline); err != nil || !inserted {
+		t.Fatalf("queue response: %v %v", inserted, err)
+	}
+	saved, err := store.GetMessage(ctx, question.ID)
+	if err != nil || saved.Status != messaging.Answered || saved.AnsweredAt == nil || !saved.AnsweredAt.Equal(response.CreatedAt) {
+		t.Fatalf("question completion: %+v %v", saved, err)
+	}
+	if _, inserted, err := store.QueueMessage(ctx, response, "peer", response.CreatedAt, deadline); err != nil || inserted {
+		t.Fatalf("exact retry: %v %v", inserted, err)
+	}
+	response.ID = "duplicate-response"
+	if _, _, err := store.QueueMessage(ctx, response, "peer", response.CreatedAt, deadline); !errors.Is(err, messaging.ErrTransition) {
+		t.Fatalf("duplicate answer: %v", err)
+	}
+	due, err := store.DueDeliveries(ctx, response.CreatedAt)
+	if err != nil || len(due) != 1 || due[0].MessageID != "response" {
+		t.Fatalf("atomic outbox: %+v %v", due, err)
+	}
+	if err := store.ExpireDeliveries(ctx, deadline); err != nil {
+		t.Fatal(err)
+	}
+	saved, err = store.GetMessage(ctx, "response")
+	if err != nil || saved.Status != messaging.Failed {
+		t.Fatalf("response deadline: %+v %v", saved, err)
+	}
+}

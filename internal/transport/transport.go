@@ -68,6 +68,11 @@ func (service *Service) Queue(ctx context.Context, message messaging.Message, pe
 			return messaging.Message{}, err
 		}
 	}
+	if message.ConversationID != "" {
+		if _, err := service.Store.GetConversation(ctx, message.ConversationID); err != nil {
+			return messaging.Message{}, err
+		}
+	}
 	if message.ConversationID == "" {
 		message.ConversationID, err = messaging.NewID("conv")
 		if err != nil {
@@ -92,6 +97,28 @@ func (service *Service) Queue(ctx context.Context, message messaging.Message, pe
 	return saved, err
 }
 
+func (service *Service) Respond(ctx context.Context, agentID, messageID, text string) (messaging.Message, error) {
+	question, err := service.Store.GetMessage(ctx, messageID)
+	if err != nil {
+		return messaging.Message{}, err
+	}
+	if question.Type != messaging.Question || question.RecipientAgentID != agentID || question.ReceivedAt == nil {
+		return messaging.Message{}, messaging.ErrInvalid
+	}
+	peerID, err := service.Store.ConversationPeer(ctx, question.ConversationID)
+	if err != nil {
+		return messaging.Message{}, err
+	}
+	return service.Queue(ctx, messaging.Message{
+		SenderAgentID:    agentID,
+		RecipientAgentID: question.SenderAgentID,
+		ConversationID:   question.ConversationID,
+		Type:             messaging.Response,
+		ReplyTo:          question.ID,
+		Text:             text,
+	}, peerID)
+}
+
 func RetryDelay(attempts int, interval time.Duration) time.Duration {
 	delays := []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute, 5 * time.Minute}
 	if attempts < len(delays) {
@@ -113,7 +140,11 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 	if err != nil {
 		return false, protocol.InvalidRequest
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+net.JoinHostPort(peer.Address, strconv.Itoa(peer.Port))+"/v1/messages", bytes.NewReader(data))
+	path := "/v1/messages"
+	if message.Type == messaging.Response {
+		path = "/v1/responses"
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+net.JoinHostPort(peer.Address, strconv.Itoa(peer.Port))+path, bytes.NewReader(data))
 	if err != nil {
 		return false, protocol.InvalidRequest
 	}
