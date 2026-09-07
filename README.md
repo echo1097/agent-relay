@@ -1,6 +1,6 @@
 # Agent Relay
 
-Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. Remote message delivery, MCP, trust enforcement, and service installation remain pending.
+Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It includes Tailscale detection, peer discovery, and [local conversation and messaging storage](docs/messaging.md) with durable inboxes. It now includes [peer message delivery](docs/delivery.md), explicit configured peer trust, durable outgoing retries, and CLI messaging. MCP, full trust management, and service installation remain pending.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.
 
@@ -49,7 +49,7 @@ The default application directory is `~/.agent-relay`. The `daemon`, `status`, `
 - `peers.json`: atomically replaced discovery cache with last-seen timestamps.
 - `daemon.lock`: OS-managed exclusive daemon lock.
 
-`status`, `daemon`, `peers`, `doctor`, and agent actions create the local directories, migrate the database, and initialize identity on first use. Version and help commands do not initialize application state. Directories are created with mode 0700; database, peer cache, log, and lock files with mode 0600. Existing directory permissions are left unchanged.
+`status`, `daemon`, `peers`, `doctor`, message actions, and agent actions create the local directories, migrate the database, and initialize identity on first use. Version and help commands do not initialize application state. Directories are created with mode 0700; database, peer cache, log, and lock files with mode 0600. Existing directory permissions are left unchanged.
 
 Create `config.toml` if you want to override defaults:
 
@@ -72,7 +72,7 @@ request_expiration_hours = 24
 level = "info"
 ```
 
-Discovery settings are active. Messaging settings are parsed and validated but do not activate messaging. Unknown fields, invalid TOML, invalid log levels, and invalid numeric settings return an error. Configuration is loaded at startup; restart the daemon after changing it. Logs use Go's structured text handler, written to stderr and the log file. Levels are `debug`, `info`, `warn`, and `error`. Log rotation is not implemented in this chunk.
+Discovery and messaging settings are active. Messages retry using the schedule in the PRD; `messages.retry_interval_seconds` controls the slower interval after the initial retries (default 900, minimum 300). Unknown fields, invalid TOML, invalid log levels, and invalid numeric settings return an error. Configuration is loaded at startup; restart the daemon after changing it. Logs use Go's structured text handler, written to stderr and the log file. Levels are `debug`, `info`, `warn`, and `error`. Log rotation is not implemented in this chunk.
 
 The default version is `0.1.0-dev`. To set a release version:
 
@@ -130,3 +130,7 @@ Discovery runs immediately and every 15 seconds by default. Eight workers probe 
 A successful compatible hello records the peer identity and last-seen time. Previously reachable peers become suspect after failures and unreachable after three consecutive failed probes. Invalid responses and incompatible versions are reported immediately. Disappeared peers remain in the cache with their last-seen time. Local Tailscale failures mark cached peers unknown. A stopped daemon or overdue refresh is displayed as stale. Cache entries are discovery observations and do not grant trust.
 
 Tailscale must be available through `tailscale` on PATH or the macOS application CLI. Production startup fails if Tailscale is unavailable or disconnected. If its IPv4 address changes, discovery reports that a daemon restart is required. Restart the daemon after installing this build. Background discovery is cancelled and joined during shutdown.
+
+## Peer messaging
+
+Use `agent-relay messages help` for send, get, inbox, and history commands. Configure trusted peer node IDs and addresses before sending. The daemon delivers queued regular messages and questions, persists incoming messages before acknowledgment, and retries temporary failures after restart. See [delivery behavior and the two-terminal test procedure](docs/delivery.md). Restart running daemons after installing this build.

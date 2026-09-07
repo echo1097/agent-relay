@@ -1,6 +1,6 @@
 # HTTP protocol foundation
 
-The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Trust enforcement, messaging, conversations, and MCP remain pending.
+The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Regular-message/question delivery and configured peer trust are implemented; MCP and full trust management remain pending.
 
 ## Listener
 
@@ -27,7 +27,7 @@ Only these GET endpoints exist:
 | `/v1/hello` | Protocol name/version, public node ID/name, and binary version. |
 | `/v1/agents` | Protocol version and an `agents` array containing agents from the current node only. |
 
-An empty registry produces `agents: []`. Offline agents remain listed with their current status. Agent listing applies the registry's presence expiration rules. GET requests do not accept bodies or query parameters. Other methods return HTTP 405 and `Allow: GET`. Unknown endpoints return HTTP 404. No registration or mutation endpoint is implemented.
+An empty registry produces `agents: []`. Offline agents remain listed with their current status. Agent listing applies the registry's presence expiration rules. GET requests do not accept bodies or query parameters. Other methods return HTTP 405 and `Allow: GET`. Unknown endpoints return HTTP 404. Agent registration and mutation endpoints remain deferred.
 
 Example hello response:
 
@@ -100,3 +100,7 @@ wait "$relayPid"
 ```
 
 Integration tests run the daemon on `127.0.0.1:0`, allowing the OS to select an unused port. They require permission to create local listeners and do not call external services.
+
+## Message transport
+
+`POST /v1/messages` now accepts trusted peer delivery of regular messages and questions. See [message wire format, acknowledgment, validation, trust, timeouts and retry behavior](delivery.md). Response-specific convenience APIs and MCP remain deferred.

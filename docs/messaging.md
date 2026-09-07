@@ -25,7 +25,7 @@ Both insertion methods return `(savedMessage, inserted, error)`. `inserted` is t
 
 Insertion validates the participant pair, message type, nonblank text, creation time, response link, and expiration. The supplied status and receipt/read/answer timestamps are ignored; the store owns those fields. `ExpiresAt`, `ReplyTo`, and all message content are immutable.
 
-Incoming message insertion, processed-message insertion, question-answer updates, and conversation updates share one SQLite transaction. Success is returned only after commit. A future transport may acknowledge delivery only after `ReceiveMessage` returns a nil error, including on an exact retry. A failure or canceled context must not produce an acknowledgment. The processed-message table records durable receipt processing, not whether an LLM has read or answered a message.
+Incoming message insertion, processed-message insertion, question-answer updates, and conversation updates share one SQLite transaction. Success is returned only after commit. The transport acknowledges delivery only after `ReceiveRemote` returns a nil error, including on an exact retry. A failure or canceled context must not produce an acknowledgment. The processed-message table records durable receipt processing, not whether an LLM has read or answered a message.
 
 SQLite uses immediate write transactions to serialize concurrent retries, including across separate store connections. History sorts by UTC creation timestamp with nanosecond precision, then message ID. Conversation `UpdatedAt` tracks the greatest creation timestamp observed and never moves backward on late delivery.
 
@@ -47,11 +47,11 @@ Callers cannot set `answered` or `expired` through the generic status API. Respo
 
 ## Expiration and integration boundary
 
-Questions default to expiration 24 hours after creation. To use a configured lifetime, supply `ExpiresAt = CreatedAt + lifetime` when creating the question and retain that deadline on retries. The existing `messages.request_expiration_hours` setting is parsed, but there is no daemon messaging service wiring it into these APIs yet.
+Questions default to expiration 24 hours after creation. To use a configured lifetime, supply `ExpiresAt = CreatedAt + lifetime` when creating the question and retain that deadline on retries. The transport service applies `messages.request_expiration_hours` when queueing questions.
 
-`ExpireRequests(ctx, now)` persistently expires unanswered questions whose deadline is at or before `now`, including unsent and failed requests. It is idempotent and does not alter answered questions or ordinary messages. Incoming questions already past their deadline are persisted as expired. Call the sweep before inbox/history reads when current expiration state is required, and periodically when the future messaging service is wired. Reads do not run a hidden sweep.
+`ExpireRequests(ctx, now)` persistently expires unanswered questions whose deadline is at or before `now`, including unsent and failed requests. It is idempotent and does not alter answered questions or ordinary messages. The low-level local receipt API can persist past-deadline questions as expired. The network receipt API rejects new expired questions; exact duplicates still return their original receipt. The daemon runs expiration each second, and CLI message reads run a sweep before returning. Internal callers should also sweep before reads when current expiration state is required. Reads do not run a hidden sweep.
 
-Transport authentication, remote routing, delivery acknowledgments, retry scheduling, daemon expiration scheduling, CLI messaging commands, and MCP integration remain future work. These internal methods are not an authorization boundary; transport and MCP must authenticate callers and enforce access before invoking them.
+The [delivery service](delivery.md) now provides explicit peer trust checks, routing, delivery acknowledgments, retries, daemon expiration, and CLI messaging. MCP and response-specific network APIs remain future work. These internal methods are not an authorization boundary; transport and MCP must authenticate callers and enforce access before invoking them.
 
 ## Schema and verification
 
