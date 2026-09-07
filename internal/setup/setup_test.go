@@ -79,6 +79,7 @@ func TestConfigurePreservesSettingsAndBacksUp(t *testing.T) {
 
 func TestMalformedConfigIsUntouched(t *testing.T) {
 	cases := []struct{ name, data string }{
+		{"claude", ""},
 		{"codex", "[broken"}, {"codex", "mcp_servers = 3"},
 		{"claude", "{"}, {"claude", "null"}, {"claude", `{"mcpServers":null}`},
 		{"claude", `{"a":1,"a":2}`}, {"claude", `{"mcpServers":{"x":{},"x":{}}}`}, {"claude", "{} {}"},

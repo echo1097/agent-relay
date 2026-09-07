@@ -77,7 +77,7 @@ func edit(data []byte, clientName, binaryPath, relayHome string, replace bool) (
 		}
 	} else if clientName == "claude" {
 		key = "mcpServers"
-		if len(data) != 0 {
+		if data != nil {
 			decoder := json.NewDecoder(bytes.NewReader(data))
 			decoder.UseNumber()
 			value, err := readJSON(decoder)

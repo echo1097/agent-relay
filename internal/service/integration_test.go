@@ -164,7 +164,7 @@ func TestOSServiceLifecycle(t *testing.T) {
 	if manager.Platform == "darwin" {
 		_, err = manager.command(ctx, "kill", "SIGKILL", manager.target())
 	} else {
-		_, err = manager.command(ctx, "kill", "--signal=SIGKILL", manager.Name+".service")
+		_, err = manager.command(ctx, "kill", "--signal=SIGKILL", "--kill-whom=main", manager.Name+".service")
 	}
 	if err != nil {
 		t.Fatal(err)
