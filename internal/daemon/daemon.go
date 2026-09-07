@@ -83,6 +83,14 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 		}
 	}()
 	defer func() { stopBackground(); <-backgroundDone }()
+	deliveryDone := make(chan struct{})
+	go func() {
+		defer close(deliveryDone)
+		if options.Delivery != nil {
+			options.Delivery.Run(backgroundCtx)
+		}
+	}()
+	defer func() { stopBackground(); <-deliveryDone }()
 	logger.Info("daemon started", "pid", os.Getpid(), "address", listener.Addr().String())
 	if options.Ready != nil {
 		options.Ready(listener.Addr())
@@ -90,6 +98,11 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
+		if options.Delivery != nil {
+			if err := options.Delivery.Store.ExpireDeliveries(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+				return err
+			}
+		}
 		if _, err := registry.Expire(ctx); err != nil && ctx.Err() == nil {
 			return err
 		}

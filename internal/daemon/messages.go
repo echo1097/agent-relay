@@ -1,0 +1,80 @@
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"mime"
+	"net/http"
+	"time"
+
+	"agent-relay/internal/messaging"
+	"agent-relay/internal/protocol"
+)
+
+func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		handler.writeError(writer, 405, protocol.MethodNotAllowed, "This endpoint accepts POST requests only.")
+		return
+	}
+	nodeIDs := request.Header.Values(protocol.NodeHeader)
+	if handler.delivery == nil || len(nodeIDs) != 1 || !handler.delivery.Trusted(nodeIDs[0], request.RemoteAddr) {
+		handler.writeError(writer, 403, protocol.NodeNotTrusted, "The sending node is not trusted.")
+		return
+	}
+	contentType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || contentType != "application/json" || request.URL.RawQuery != "" {
+		handler.writeError(writer, 400, protocol.InvalidRequest, "A JSON message without query parameters is required.")
+		return
+	}
+	if err := http.NewResponseController(writer).SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		handler.writeError(writer, 500, protocol.InternalError, "The request could not be read.")
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, 512*1024)
+	defer request.Body.Close()
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var message protocol.Message
+	if err := decoder.Decode(&message); err != nil {
+		handler.writeError(writer, 400, protocol.InvalidRequest, "The message is invalid or too large.")
+		return
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		handler.writeError(writer, 400, protocol.InvalidRequest, "Specify exactly one message.")
+		return
+	}
+	if message.ProtocolVersion != protocol.Version {
+		handler.writeError(writer, 400, protocol.UnsupportedProtocol, "This node supports protocol version 1.")
+		return
+	}
+	if err := message.Validate(); err != nil {
+		handler.writeError(writer, 400, protocol.InvalidRequest, "The message is invalid.")
+		return
+	}
+	saved, _, err := handler.delivery.Store.ReceiveRemote(request.Context(), message.Local(), nodeIDs[0], time.Now().UTC())
+	if err != nil {
+		status, code, detail := 500, protocol.InternalError, "The message could not be stored."
+		switch {
+		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+			status, code, detail = 504, protocol.RequestTimeout, "The request timed out."
+		case errors.Is(err, messaging.ErrNotFound):
+			status, code, detail = 404, protocol.AgentNotFound, "The recipient is not registered on this node."
+		case errors.Is(err, messaging.ErrConflict):
+			status, code, detail = 409, protocol.MessageConflict, "The message conflicts with an existing message or conversation."
+		case errors.Is(err, messaging.ErrExpired):
+			status, code, detail = 410, protocol.MessageExpired, "The message has expired."
+		case errors.Is(err, messaging.ErrInvalid):
+			status, code, detail = 400, protocol.InvalidRequest, "The message participants are invalid."
+		}
+		handler.writeError(writer, status, code, detail)
+		return
+	}
+	if saved.ReceivedAt == nil {
+		handler.writeError(writer, 409, protocol.MessageConflict, "The message ID is already in use.")
+		return
+	}
+	handler.writeJSON(writer, 200, protocol.DeliveryAck{ProtocolVersion: protocol.Version, NodeID: handler.hello.Node.ID, MessageID: saved.ID, Status: "delivered", ReceivedAt: *saved.ReceivedAt})
+}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -61,7 +62,7 @@ func TestDefaultsAndDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg, err := Load(paths.Config)
-	if err != nil || cfg != Defaults() {
+	if err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("defaults: %+v, %v", cfg, err)
 	}
 	for range 2 {
@@ -77,5 +78,42 @@ func TestDefaultsAndDirectories(t *testing.T) {
 		if info.Mode().Perm() != 0700 {
 			t.Fatalf("directory permissions: %v", info.Mode())
 		}
+	}
+}
+
+func TestTrustedPeerConfiguration(t *testing.T) {
+	nodeID := "node_019a84fc-1b72-7000-8000-000000000001"
+	for _, testCase := range []struct {
+		name, address      string
+		development, valid bool
+	}{
+		{"tailscale", "100.64.0.2", false, true},
+		{"public", "8.8.8.8", false, false},
+		{"hostname", "localhost", true, false},
+		{"production loopback", "127.0.0.1", false, false},
+		{"development loopback", "127.0.0.1", true, true},
+		{"development tailscale", "100.64.0.2", true, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Network.Development = testCase.development
+			if testCase.development {
+				cfg.Network.BindAddress = "127.0.0.1"
+			}
+			cfg.TrustedPeers = []TrustedPeer{{NodeID: nodeID, Address: testCase.address, Port: 47832}}
+			if err := cfg.Validate(); (err == nil) != testCase.valid {
+				t.Fatalf("validation: %v", err)
+			}
+		})
+	}
+	cfg := Defaults()
+	cfg.TrustedPeers = []TrustedPeer{{NodeID: nodeID, Address: "100.64.0.2", Port: 47832}, {NodeID: nodeID, Address: "100.64.0.3", Port: 47832}}
+	if cfg.Validate() == nil {
+		t.Fatal("duplicate trust identity accepted")
+	}
+	cfg = Defaults()
+	cfg.Messages.RetryIntervalSeconds = 299
+	if cfg.Validate() == nil {
+		t.Fatal("fast long-term retries accepted")
 	}
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"agent-relay/internal/protocol"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -12,8 +13,15 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type TrustedPeer struct {
+	NodeID  string `toml:"node_id"`
+	Address string `toml:"address"`
+	Port    int    `toml:"port"`
+}
+
 type Config struct {
-	Network struct {
+	TrustedPeers []TrustedPeer `toml:"trusted_peers"`
+	Network      struct {
 		Development bool   `toml:"development"`
 		Port        int    `toml:"port"`
 		BindAddress string `toml:"bind_address"`
@@ -27,6 +35,7 @@ type Config struct {
 	} `toml:"presence"`
 	Messages struct {
 		RequestExpirationHours int `toml:"request_expiration_hours"`
+		RetryIntervalSeconds   int `toml:"retry_interval_seconds"`
 	} `toml:"messages"`
 	Logging struct {
 		Level string `toml:"level"`
@@ -73,6 +82,7 @@ func Defaults() Config {
 	cfg.Presence.HeartbeatSeconds = 10
 	cfg.Presence.OfflineAfterSeconds = 30
 	cfg.Messages.RequestExpirationHours = 24
+	cfg.Messages.RetryIntervalSeconds = 900
 	cfg.Logging.Level = "info"
 	return cfg
 }
@@ -101,6 +111,21 @@ func Load(path string) (Config, error) {
 }
 
 func (cfg Config) Validate() error {
+	seen := map[string]bool{}
+	addresses := map[string]bool{}
+	for _, peer := range cfg.TrustedPeers {
+		address, err := netip.ParseAddr(peer.Address)
+		if err != nil || peer.Port < 1 || peer.Port > 65535 || protocol.PublicNode(peer.NodeID, "peer").Validate() != nil || seen[peer.NodeID] || addresses[peer.Address] {
+			return errors.New("trusted peers require unique valid node IDs, addresses and ports")
+		}
+		if cfg.Network.Development && !address.IsLoopback() || !cfg.Network.Development && !netip.MustParsePrefix("100.64.0.0/10").Contains(address) {
+			return errors.New("trusted peer addresses must be Tailscale IPv4, or loopback in development")
+		}
+		seen[peer.NodeID], addresses[peer.Address] = true, true
+	}
+	if cfg.Messages.RequestExpirationHours < 1 || int64(cfg.Messages.RequestExpirationHours) > int64((1<<63-1)/time.Hour) || cfg.Messages.RetryIntervalSeconds < 300 || int64(cfg.Messages.RetryIntervalSeconds) > int64((1<<63-1)/time.Second) {
+		return errors.New("invalid message expiration or retry interval (minimum 300 seconds)")
+	}
 	if cfg.Network.Development {
 		address, err := netip.ParseAddr(cfg.Network.BindAddress)
 		if err != nil || !address.IsLoopback() {

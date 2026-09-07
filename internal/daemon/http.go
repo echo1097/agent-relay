@@ -14,9 +14,11 @@ import (
 
 	"agent-relay/internal/agents"
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/transport"
 )
 
 type HTTPOptions struct {
+	Delivery   *transport.Service
 	Background func(context.Context)
 	Address    string
 	Node       protocol.Node
@@ -29,6 +31,7 @@ type agentLister interface {
 }
 
 type httpHandler struct {
+	delivery *transport.Service
 	registry agentLister
 	hello    protocol.Hello
 	logger   *slog.Logger
@@ -41,7 +44,7 @@ func newHTTPServer(registry agentLister, options HTTPOptions, logger *slog.Logge
 	if err := hello.Validate(); err != nil {
 		return nil, err
 	}
-	handler := &httpHandler{registry: registry, hello: hello, logger: logger}
+	handler := &httpHandler{delivery: options.Delivery, registry: registry, hello: hello, logger: logger}
 	return &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -83,6 +86,10 @@ func (handler *httpHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 		}
 	}
 	path := request.URL.Path
+	if path == "/v1/messages" {
+		handler.receiveMessage(writer, request.WithContext(ctx))
+		return
+	}
 	if strings.HasPrefix(path, "/v") && !strings.HasPrefix(path, "/v1/") {
 		handler.writeError(writer, http.StatusBadRequest, protocol.UnsupportedProtocol, "This node supports protocol version 1.")
 		return
