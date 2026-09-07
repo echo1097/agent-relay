@@ -3,6 +3,8 @@ package setup
 import (
 	"encoding/json"
 	"errors"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -47,13 +49,20 @@ func Check(client Client, relayHome string) error {
 	if !filepath.IsAbs(entry.Command) || err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
 		return errors.New("Agent Relay MCP command must reference an existing executable by absolute path")
 	}
-	if len(entry.Args) < 3 || entry.Args[0] != "mcp" {
+	if len(entry.Args) == 0 || entry.Args[0] != "mcp" {
 		return errors.New("Agent Relay MCP arguments must include mcp --home PATH")
 	}
-	for index := 1; index+1 < len(entry.Args); index++ {
-		if entry.Args[index] == "--home" && entry.Args[index+1] == relayHome {
-			return nil
-		}
+	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configuredHome := flags.String("home", "", "")
+	for _, name := range []string{"agent-id", "name", "provider", "task", "project", "repository", "branch"} {
+		flags.String(name, "", "")
 	}
-	return errors.New("Agent Relay MCP home does not match the directory being diagnosed")
+	if err := flags.Parse(entry.Args[1:]); err != nil || flags.NArg() != 0 {
+		return errors.New("Agent Relay MCP arguments are invalid")
+	}
+	if *configuredHome != relayHome {
+		return errors.New("Agent Relay MCP home does not match the directory being diagnosed")
+	}
+	return nil
 }

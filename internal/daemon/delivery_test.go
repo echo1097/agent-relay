@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -440,5 +441,45 @@ func TestInterruptedSendingResumesAfterRestart(t *testing.T) {
 	inbox, err := nodeB.store.GetMessage(ctx, message.ID)
 	if err != nil || inbox.Text != message.Text {
 		t.Fatalf("recovered delivery: %+v %v", inbox, err)
+	}
+}
+
+func TestMessageEventsExcludeBodiesAndDuplicateReceipts(t *testing.T) {
+	ctx := context.Background()
+	nodeA := makeDeliveryNode(t, "127.0.0.1:0")
+	nodeB := makeDeliveryNode(t, "127.0.0.1:0")
+	trustNode(t, nodeA, nodeB)
+	trustNode(t, nodeB, nodeA)
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	nodeA.service.Logger = logger
+	message, err := nodeA.service.Queue(ctx, messaging.Message{SenderAgentID: nodeA.agent.ID, RecipientAgentID: nodeB.agent.ID, Type: messaging.MessageType, Text: "private body must not appear in logs"}, nodeB.node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nodeA.service.Queue(ctx, message, nodeB.node.ID); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newHTTPServer(nodeB.registry, HTTPOptions{Node: protocol.PublicNode(nodeB.node.ID, "test"), Version: "test", Delivery: nodeB.service}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(protocol.WireMessage(message))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		request := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(data))
+		request.RemoteAddr = "127.0.0.1:12345"
+		request.Header.Set(protocol.NodeHeader, nodeA.node.ID)
+		request.Header.Set("Content-Type", "application/json")
+		writer := httptest.NewRecorder()
+		server.Handler.ServeHTTP(writer, request)
+		if writer.Code != http.StatusOK {
+			t.Fatalf("receipt: %d %s", writer.Code, writer.Body)
+		}
+	}
+	if strings.Contains(logs.String(), message.Text) || strings.Count(logs.String(), "message queued") != 1 || strings.Count(logs.String(), "message received") != 1 {
+		t.Fatalf("unexpected message events: %s", logs.String())
 	}
 }

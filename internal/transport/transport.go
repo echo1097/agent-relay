@@ -85,8 +85,8 @@ func (service *Service) Queue(ctx context.Context, message messaging.Message, pe
 	if err := protocol.WireMessage(message).Validate(); err != nil {
 		return messaging.Message{}, err
 	}
-	saved, duplicate, err := service.Store.QueueAuthorized(ctx, message, peerID, now, deadline)
-	if err == nil && !duplicate {
+	saved, inserted, err := service.Store.QueueAuthorized(ctx, message, peerID, now, deadline)
+	if err == nil && inserted {
 		service.Logger.Info("message queued", "message_id", saved.ID, "peer_id", peerID, "type", saved.Type)
 	}
 	return saved, err

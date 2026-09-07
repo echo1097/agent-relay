@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,5 +38,34 @@ func TestCheckMCPConfiguration(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestCheckUsesEffectiveMCPArguments(t *testing.T) {
+	home := t.TempDir()
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Name: "claude", Path: filepath.Join(home, "claude.json")}
+	for _, testCase := range []struct {
+		args  []string
+		valid bool
+	}{
+		{[]string{"mcp", "--home=" + home}, true},
+		{[]string{"mcp", "--home", home, "--home", home + "other"}, false},
+		{[]string{"mcp", "--home", home, "--unknown"}, false},
+		{[]string{"mcp", "--home", home, "extra"}, false},
+	} {
+		data, err := json.Marshal(map[string]any{"mcpServers": map[string]any{"agent-relay": map[string]any{"command": binary, "args": testCase.args}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(client.Path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := Check(client, home); (err == nil) != testCase.valid {
+			t.Fatalf("args %v: %v", testCase.args, err)
+		}
 	}
 }

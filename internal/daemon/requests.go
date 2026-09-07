@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"agent-relay/internal/protocol"
 	"net/http"
 	"sync"
 )
@@ -17,7 +18,11 @@ func (tracker *requestTracker) ServeHTTP(writer http.ResponseWriter, request *ht
 	if tracker.stopping {
 		tracker.mutex.Unlock()
 		writer.Header().Set("Connection", "close")
-		http.Error(writer, "Agent Relay is shutting down; retry shortly.", http.StatusServiceUnavailable)
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set(protocol.VersionHeader, "1")
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		writer.Write([]byte(`{"protocol_version":1,"error":{"code":"INTERNAL_ERROR","message":"Agent Relay is shutting down; retry shortly."}}`))
 		return
 	}
 	tracker.active.Add(1)
