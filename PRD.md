@@ -2,16 +2,16 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, against implementation commit `ae0a5f6`.
+Last reviewed: September 6, 2026, against implementation commit `88e3580`.
 
-The repository currently implements the project foundation, local agent registry and presence, and the HTTP protocol foundation. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, and Tailscale integration with peer discovery. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
 | Area | Current status |
 | --- | --- |
 | Phase 1: Foundation | Implemented. |
 | Phase 2: Local agent registry | Implemented. Busy and idle are explicitly set by callers; automatic idle detection is not implemented. |
 | Phase 3: Inter-node transport | HTTP foundation implemented. Message serialization and message transport remain deferred. |
-| Phase 4: Tailscale integration | Not implemented. |
+| Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery and cache, and initial diagnostics. Real-tailnet validation remains outstanding. |
 | Phases 5 and 6: Messaging and responses | Not implemented. |
 | Phase 7: Trust | Peer trust management and enforcement are not implemented. |
 | Phase 8: MCP | Not implemented. |
@@ -21,7 +21,7 @@ The repository currently implements the project foundation, local agent registry
 ### Built: project foundation
 
 * Go module and `cmd/agent-relay/main.go`, producing the `agent-relay` binary.
-* CLI commands for help, version, daemon operation, status, and local agents.
+* CLI commands for help, version, daemon operation, status, local agents, peers, and initial doctor checks.
 * TOML configuration with defaults, validation, and an optional configuration file.
 * Structured text logging to stderr and the application log file.
 * Application directories under `~/.agent-relay`, with a `--home` override.
@@ -49,7 +49,7 @@ Registration and metadata replacement clear omitted metadata fields. Callers mus
 ### Built: HTTP protocol foundation
 
 * A daemon HTTP server using Go's standard library.
-* Configurable `network.bind_address` and `network.port`, currently defaulting to `127.0.0.1:47832`.
+* Production defaults to `network.bind_address = "tailscale"` and port `47832`, binding only to the detected local Tailscale IPv4 address. Explicit development mode permits loopback; wildcard addresses are rejected.
 * `GET /v1/health` for process liveness, `GET /v1/hello` for public node and version information, and `GET /v1/agents` for local agents only.
 * Protocol version 1 in application response bodies and the `X-Agent-Relay-Protocol-Version` header. The `/v1/` URL supplies the request version; an optional request header is checked for compatibility.
 * Validated public response objects, consistent JSON application errors, and rejection of unsupported methods, request bodies, and query parameters.
@@ -58,13 +58,28 @@ Registration and metadata replacement clear omitted metadata fields. Callers mus
 * Five-second request contexts and header-read timeouts, ten-second read/write timeouts, a thirty-second idle timeout, and a 16 KiB header limit.
 * Graceful HTTP shutdown with up to five seconds for active requests before remaining connections are closed, followed by local presence cleanup.
 
-Loopback binding is an interim development default. Tailscale-only production binding, peer authentication, and trust enforcement remain requirements for later phases. No agent mutation endpoint, outgoing peer transport, discovery, conversation, message, or MCP implementation exists yet. See [HTTP protocol behavior and examples](docs/protocol.md).
+Tailscale-only production binding and outgoing hello probes are implemented. Peer authentication and trust enforcement remain pending. No agent mutation endpoint, conversation, message transport, or MCP implementation exists yet. See [HTTP protocol behavior and examples](docs/protocol.md).
+
+### Built: Tailscale integration and peer discovery
+
+* A Tailscale client interface with injectable command execution for tests. The implementation finds the CLI on PATH or at the macOS application path, then reads `tailscale status --json`.
+* Detection of installation, reachable Tailscale daemon, connected state, local Tailscale IPv4, and visible IPv4 peers. IPv6-only peers are currently skipped.
+* Production startup requires connected Tailscale. `network.development = true` permits an explicit loopback `bind_address`; neither mode permits wildcard binding. A local Tailscale IP change requires an Agent Relay daemon restart.
+* Immediate discovery and periodic refresh, defaulting to 15 seconds, with eight probe workers. Tailscale commands have a five-second timeout, hello probes a three-second timeout, and discovery rounds a ten-second budget.
+* Probes of `GET /v1/hello` on the configured Agent Relay port, with protocol version headers and validated compatible responses. Probes bypass HTTP proxies, reject redirects, and bound response bodies to 64 KiB and headers to 16 KiB.
+* An atomically replaced local `peers.json` cache containing Tailscale peer IDs, addresses, validated Relay identities, last-seen times, failure counts, and diagnostic states. The cache is separate from durable SQLite node identity and grants no trust.
+* Successful probes mark peers online. Previously reachable peers become suspect after failures and unreachable after three consecutive failures. Invalid hello responses and incompatible versions are reported immediately. Never-successful candidates also remain visible for diagnostics.
+* Disappeared peers retain their last-seen time in the cache. Local Tailscale failures mark cached peers unknown. Cache entries are shown as stale when the daemon is stopped or refresh is overdue.
+* `peers` reads cached discovery state. `status` includes current local Tailscale information and cached peers. `doctor` checks Tailscale, probes the local listener and remote candidates, and provides remediation hints with a failing exit status when required checks fail.
+* Discovery cancellation and worker completion are awaited during daemon shutdown.
+
+All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation, trust enforcement, messaging, and MCP are not part of this implementation. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
 
 ### Current schema and verification
 
-Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. The migration runner records applied versions in `schema_migrations`. Conversation, message, and processed-message tables described later in this PRD are not implemented yet.
+Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. The migration runner records applied versions in `schema_migrations`. Peer discovery uses `peers.json` and adds no SQLite migration. Conversation, message, and processed-message tables described later in this PRD are not implemented yet.
 
-The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Manual CLI and curl checks also passed, and test daemons were stopped afterward.
+The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between two Tailscale machines has not been verified.
 
 The two-node agent messaging test in section 56 has not been implemented or passed. The project is not yet a complete V0.1 release.
 
@@ -429,7 +444,7 @@ Agent Relay should detect these conditions automatically.
 
 ## 8.2 Listening interface
 
-Current implementation: the HTTP foundation defaults to loopback (`127.0.0.1`) and accepts a configured IP address. The Tailscale-only production behavior below is pending Phase 4.
+Current implementation: production resolves `network.bind_address = "tailscale"` to the connected local Tailscale IPv4 address. Startup fails if this is unavailable. Local development requires both `network.development = true` and a loopback `network.bind_address`.
 
 The daemon should listen only on the machine's Tailscale network interface.
 
@@ -445,7 +460,7 @@ It must not listen publicly on:
 0.0.0.0
 ```
 
-unless explicitly configured by the user.
+even when explicitly configured. Loopback development mode is the supported testing exception.
 
 Default port:
 
@@ -668,6 +683,8 @@ Presence is ephemeral.
 ---
 
 # 14. Peer Discovery
+
+Current implementation: the IPv4 discovery strategy below is built, including compatible hello validation, a persistent local cache, periodic refresh, last-seen state, and failure handling. Real-tailnet verification remains outstanding.
 
 Agent Relay should automatically discover other Agent Relay nodes on the tailnet.
 
@@ -1732,6 +1749,8 @@ Should display recent conversations.
 
 # 44. Doctor Command
 
+Current implementation: initial checks cover Tailscale installation, daemon reachability, connection and IPv4, the local Agent Relay listener and identity, and compatible remote peers. MCP configuration checks and the full diagnostic set illustrated below remain pending.
+
 `agent-relay doctor` is required.
 
 It should diagnose common setup failures.
@@ -1838,7 +1857,7 @@ or user-local equivalent.
 
 # 47. Configuration
 
-Current implementation also supports `network.bind_address`, defaulting to `127.0.0.1` while Tailscale integration is pending. The configuration file is optional. Network discovery and messaging settings are validated but do not activate features that have not been built.
+The configuration file is optional. Production defaults to `network.bind_address = "tailscale"` and `network.development = false`. Discovery settings are active; messaging settings remain validation-only until messaging is implemented. For local testing, set `network.development = true` and `network.bind_address = "127.0.0.1"`. Restart the daemon after configuration or binary changes.
 
 Example:
 
@@ -2363,7 +2382,7 @@ Test two daemon instances locally.
 
 ## Phase 4: Tailscale integration
 
-Status: not started. This is the next planned implementation phase.
+Status: implemented through a fakeable Tailscale client, production IPv4 binding, bounded hello probes, protocol compatibility checks, peer cache and last-seen state, periodic refresh, disappearance handling, and CLI diagnostics. Tests use fakes and localhost servers; real-tailnet testing remains outstanding.
 
 Build:
 

@@ -49,7 +49,7 @@ The default application directory is `~/.agent-relay`. The `daemon`, `status`, `
 - `peers.json`: atomically replaced discovery cache with last-seen timestamps.
 - `daemon.lock`: OS-managed exclusive daemon lock.
 
-`status`, `daemon`, and agent actions create the local directories, migrate the database, and initialize identity on first use. Version and help commands do not initialize application state. Directories are created with mode 0700; database, log, and lock files with mode 0600. Existing directory permissions are left unchanged.
+`status`, `daemon`, `peers`, `doctor`, and agent actions create the local directories, migrate the database, and initialize identity on first use. Version and help commands do not initialize application state. Directories are created with mode 0700; database, peer cache, log, and lock files with mode 0600. Existing directory permissions are left unchanged.
 
 Create `config.toml` if you want to override defaults:
 
@@ -72,7 +72,7 @@ request_expiration_hours = 24
 level = "info"
 ```
 
-The settings for later phases are parsed and validated but do not activate those features. Unknown fields, invalid TOML, invalid log levels, and invalid numeric settings return an error. Configuration is loaded at startup; restart the daemon after changing it. Logs use Go's structured text handler, written to stderr and the log file. Levels are `debug`, `info`, `warn`, and `error`. Log rotation is not implemented in this chunk.
+Discovery settings are active. Messaging settings are parsed and validated but do not activate messaging. Unknown fields, invalid TOML, invalid log levels, and invalid numeric settings return an error. Configuration is loaded at startup; restart the daemon after changing it. Logs use Go's structured text handler, written to stderr and the log file. Levels are `debug`, `info`, `warn`, and `error`. Log rotation is not implemented in this chunk.
 
 The default version is `0.1.0-dev`. To set a release version:
 
