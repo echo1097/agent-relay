@@ -52,7 +52,7 @@ func TestAgentCommands(t *testing.T) {
 		err := Run(context.Background(), commandArgs, &output, &errorOutput, "test")
 		return output.String(), err
 	}
-	output, err := run("list")
+	output, err := run("list", "--local")
 	if err != nil || !strings.Contains(output, "No local agents") {
 		t.Fatalf("empty list: %q, %v", output, err)
 	}
@@ -75,7 +75,7 @@ func TestAgentCommands(t *testing.T) {
 			t.Fatalf("command %v: %q, %v", args, output, err)
 		}
 	}
-	output, err = run("list")
+	output, err = run("list", "--local")
 	if err != nil || !strings.Contains(output, "busy") || !strings.Contains(output, "changed") {
 		t.Fatalf("list: %q, %v", output, err)
 	}

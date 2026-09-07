@@ -16,7 +16,7 @@ import (
 const agentUsage = `Usage: agent-relay agents [action] [options]
 
 Actions:
-  list                       List all local agents (default)
+  list                       List local and remote agents (default); --local skips peer lookup
   get --id ID                Show one agent as JSON
   register --name NAME       Register a session and print its ID
   heartbeat --id ID          Refresh presence
@@ -31,6 +31,7 @@ Register and update-metadata accept --task, --project, --repository, --branch,
 `
 
 type agentOptions struct {
+	local    bool
 	action   string
 	id       string
 	name     string
@@ -47,6 +48,7 @@ func agentArguments(flags *flag.FlagSet, args []string) (*agentOptions, []string
 	}
 	switch options.action {
 	case "list":
+		flags.BoolVar(&options.local, "local", false, "list only local sessions without network requests")
 		return options, args, nil
 	case "register":
 		flags.StringVar(&options.name, "name", "", "agent display name")

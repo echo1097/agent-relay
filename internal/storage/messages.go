@@ -350,3 +350,23 @@ func (store *Store) ExpireRequests(ctx context.Context, now time.Time) (int64, e
 	}
 	return result.RowsAffected()
 }
+
+func (store *Store) RecentConversations(ctx context.Context, agentID string, limit int) ([]messaging.Conversation, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, errors.New("conversation limit must be between 1 and 1000")
+	}
+	rows, err := store.db.QueryContext(ctx, "SELECT "+conversationColumns+" FROM conversations WHERE (? = '' OR local_agent_id = ?) ORDER BY updated_at DESC, id DESC LIMIT ?", agentID, agentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []messaging.Conversation{}
+	for rows.Next() {
+		conversation, err := scanConversation(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, conversation)
+	}
+	return result, rows.Err()
+}

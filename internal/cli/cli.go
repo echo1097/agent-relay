@@ -39,7 +39,9 @@ Commands:
   untrust   Reset a peer to unknown
   trust-state  Inspect peer trust and device binding
   doctor    Check Tailscale and live peer reachability
-  agents    List, inspect, register, or update local agents (agents help)
+  agents    Discover local and remote agents, or manage local sessions (agents help)
+  inbox     Show unread messages and pending questions [--agent ID] [--include-read]
+  conversations  Show recent conversations [--agent ID] [--limit N]
   mcp       Serve agent tools over stdio (one coding session per process)
   setup     Configure Codex and Claude Code MCP clients (setup help)
   service   Install and control a background daemon (service help)
@@ -78,7 +80,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return runSetup(args[1:], output, errorOutput)
 	case "service":
 		return runService(ctx, args[1:], output, errorOutput)
-	case "mcp", "daemon", "status", "agents", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
+	case "mcp", "daemon", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -90,6 +92,15 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		flags.BoolVar(&installation, "installation", false, "report pending first-time agent, client, and peer setup as NEXT steps")
 	}
 	commandArgs := args[1:]
+	var overview overviewOptions
+	if command == "inbox" || command == "conversations" {
+		flags.StringVar(&overview.agentID, "agent", "", "filter by local agent ID; omitted includes all local sessions")
+		if command == "inbox" {
+			flags.BoolVar(&overview.includeRead, "include-read", false, "include previously read messages")
+		} else {
+			flags.IntVar(&overview.limit, "limit", 20, "number of recent conversations (1 to 1000)")
+		}
+	}
 	var registration agents.Registration
 	if command == "mcp" {
 		flags.StringVar(&registration.ID, "agent-id", "", "resume an existing local agent ID; do not share between live clients")
@@ -222,10 +233,13 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if err != nil {
 		return err
 	}
+	if command == "inbox" || command == "conversations" {
+		return showOverview(ctx, store, registry, command, overview, output)
+	}
+	directory := &relay.Directory{Registry: registry, Store: store, Node: protocol.PublicNode(node.ID, node.Name), Path: filepath.Join(paths.Home, "peers.json"), Port: cfg.Network.Port, Development: cfg.Network.Development, Tailscale: client, Prober: discovery.NewProber()}
 	if command == "mcp" {
 		service := transport.New(store, node.ID, "", cfg, logger)
 		defer service.Client.CloseIdleConnections()
-		directory := &relay.Directory{Registry: registry, Store: store, Node: protocol.PublicNode(node.ID, node.Name), Path: filepath.Join(paths.Home, "peers.json"), Port: cfg.Network.Port, Development: cfg.Network.Development, Tailscale: client, Prober: discovery.NewProber()}
 		session := &relay.Session{Directory: directory, Delivery: service, Registration: registration}
 		return mcp.Run(ctx, session, &sdk.StdioTransport{}, time.Duration(cfg.Presence.HeartbeatSeconds)*time.Second, version, logger)
 	}
@@ -255,6 +269,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		}})
 	}
 	if command == "agents" {
+		if agentFlags.action == "list" && !agentFlags.local {
+			return showAgentDirectory(ctx, directory, false, output)
+		}
 		return runAgents(ctx, registry, agentFlags, output)
 	}
 	running, err := daemon.Running(paths.Lock)
@@ -296,5 +313,15 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if err := showTrust(ctx, output, store, snapshot); err != nil {
 		return err
 	}
-	return showPeers(output, snapshot, running, cfg.Discovery.IntervalSeconds)
+	if err := showPeers(output, snapshot, running, cfg.Discovery.IntervalSeconds); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, "\nRemote agents"); err != nil {
+		return err
+	}
+	if err := showAgentDirectory(ctx, directory, true, output); err != nil {
+		_, writeErr := fmt.Fprintf(output, "Remote agent lookup unavailable: %v. Run agent-relay doctor.\n", err)
+		return writeErr
+	}
+	return nil
 }

@@ -93,7 +93,10 @@ The background service starts at login. Use these commands to inspect and manage
 | --- | --- |
 | `agent-relay status` | Show local Relay status. |
 | `agent-relay peers` | List discovered computers and their trust state. |
-| `agent-relay agents list` | List locally registered agent sessions. |
+| `agent-relay agents` | Discover local and remote agent sessions. |
+| `agent-relay agents --local` | List local sessions without peer lookup. |
+| `agent-relay inbox` | Read unread messages and pending questions. |
+| `agent-relay conversations` | Show the 20 most recently updated conversations. |
 | `agent-relay service status` | Check the background service. |
 | `agent-relay service restart` | Restart the background service. |
 | `agent-relay doctor` | Diagnose setup and connection problems. |

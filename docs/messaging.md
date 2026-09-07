@@ -58,3 +58,11 @@ The [delivery service](delivery.md) now provides explicit peer trust checks, rou
 Migration 3 adds `conversations`, `messages`, and `processed_messages`, with foreign keys, participant and type constraints, immutable-content triggers, and history/inbox/expiration indexes. Existing node and agent records survive the upgrade.
 
 Unit tests cover validation, lifecycle transitions, UUID generation, migration upgrades, participant constraints, deterministic ordering, unread/pending filtering, response linkage, retry conflicts, concurrent duplicate insertion, canceled operations, transaction rollback, expiration boundaries, and restart persistence. The full repository passes formatting, vet, tests, build, and race tests. Tests use local SQLite databases and existing localhost HTTP fixtures; no paid APIs are called.
+
+## Human-readable overviews
+
+`agent-relay inbox` shows unread messages and pending questions across local sessions without marking them read. Use `--agent AGENT_ID` to select a local session or `--include-read` to include previously read items. Message text is quoted so terminal control characters cannot execute as terminal commands.
+
+`agent-relay conversations` lists the 20 most recently updated local conversations. Use `--agent AGENT_ID` and `--limit N` (1 to 1000) to narrow the list. Read the full history with `agent-relay messages history --conversation CONVERSATION_ID`. These commands accept `--home PATH` and work while the daemon is stopped.
+
+`agent-relay agents` lists local and remote agents with their machine, status, trust, and task. Unreachable nodes are reported without hiding reachable agents. Use `agent-relay agents --local` for local-only inspection without peer requests. `agent-relay status` includes remote agents as well as local service and peer state.
