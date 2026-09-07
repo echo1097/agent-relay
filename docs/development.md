@@ -33,7 +33,7 @@ Restart the backend after changing its executable or configuration. Installed se
 
 ## Reference
 
-- [Product requirements](../PRD.md)
+- [V0.1 compliance audit](v0.1-audit.md)
 - [Architecture and storage](architecture.md)
 - [Agent registration and presence](agents.md)
 - [HTTP protocol](protocol.md)
