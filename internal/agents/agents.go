@@ -182,5 +182,9 @@ func (registry *Registry) Update(ctx context.Context, agentID string, status Sta
 	if !status.Valid() {
 		return Agent{}, errors.New("agent status must be online, busy, idle, or offline")
 	}
-	return registry.store.UpdateAgent(ctx, registry.nodeID, agentID, &status, &metadata, registry.now().UTC())
+	agent, err := registry.store.UpdateAgent(ctx, registry.nodeID, agentID, &status, &metadata, registry.now().UTC())
+	if err == nil && status == Offline {
+		registry.logger.Info("agent offline", "agent_id", agentID, "reason", "explicit")
+	}
+	return agent, err
 }

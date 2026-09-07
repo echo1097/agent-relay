@@ -321,3 +321,49 @@ func TestMissingHomeCanBeUninstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRefusesUnownedAndSymlinkBinaries(t *testing.T) {
+	for _, platform := range []string{"darwin", "linux"} {
+		for _, kind := range []string{"unowned", "symlink", "managed-symlink"} {
+			t.Run(platform+"/"+kind, func(t *testing.T) {
+				fake := newFake(t, platform)
+				manager := fake.manager
+				source := testSource(t, manager.UserHome)
+				home := filepath.Join(manager.UserHome, "relay")
+				if err := os.MkdirAll(manager.installDir(), 0700); err != nil {
+					t.Fatal(err)
+				}
+				binary := filepath.Join(manager.installDir(), "agent-relay")
+				if kind == "managed-symlink" {
+					if err := manager.Execute(context.Background(), "install", home, source, &bytes.Buffer{}); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Remove(binary); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if kind == "unowned" {
+					if err := os.WriteFile(binary, []byte("unrelated executable"), 0700); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Symlink(source, binary); err != nil {
+					t.Fatal(err)
+				}
+				callCount := len(fake.calls)
+				err := manager.Execute(context.Background(), "install", home, source, &bytes.Buffer{})
+				if err == nil || !strings.Contains(err.Error(), "refusing unowned or nonregular") {
+					t.Fatal("unsafe install accepted", err)
+				}
+				for _, call := range fake.calls[callCount:] {
+					if strings.Contains(call, "bootout") || strings.Contains(call, " stop ") {
+						t.Fatal("unsafe install stopped the service")
+					}
+				}
+				data, err := os.ReadFile(binary)
+				if err != nil || kind == "unowned" && string(data) != "unrelated executable" || kind != "unowned" && string(data) != "first binary" {
+					t.Fatal("existing executable changed", err)
+				}
+			})
+		}
+	}
+}

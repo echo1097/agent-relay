@@ -253,6 +253,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		if err != nil {
 			return err
 		}
+		if !cfg.Network.Development {
+			logger.Info("Tailscale detected", "address", address)
+		}
 		boundIP, _, err := net.SplitHostPort(address)
 		if err != nil {
 			return err

@@ -191,11 +191,15 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 		if visible[id] {
 			continue
 		}
+		oldState := peer.State
 		peer.State = "disappeared"
 		peer.Error = "peer no longer visible in Tailscale"
 		if statusErr != nil {
 			peer.State = "unknown"
 			peer.Error = next.Error
+		}
+		if manager.Logger != nil && peer.State != oldState {
+			manager.Logger.Info("peer lost", "peer_id", peer.Node.ID, "state", peer.State)
 		}
 		next.Peers = append(next.Peers, peer)
 	}

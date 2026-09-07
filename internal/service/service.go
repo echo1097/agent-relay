@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"agent-relay/internal/daemon"
 	"agent-relay/internal/discovery"
 	"agent-relay/internal/fileedit"
+	"agent-relay/internal/storage"
 	"agent-relay/internal/tailscale"
 )
 
@@ -474,6 +476,13 @@ func (manager *Manager) install(ctx context.Context, old *Installation, home, so
 	if err != nil {
 		return err
 	}
+	binaryInfo, binaryErr := os.Lstat(installed.Binary)
+	if binaryErr != nil && !errors.Is(binaryErr, os.ErrNotExist) {
+		return binaryErr
+	}
+	if binaryInfo != nil && (old == nil || !binaryInfo.Mode().IsRegular()) {
+		return fmt.Errorf("refusing unowned or nonregular service binary at %s; review and move it aside before retrying", installed.Binary)
+	}
 	sameBinary, err := binaryMatches(source, installed.Binary)
 	if err != nil {
 		return err
@@ -562,17 +571,24 @@ func (manager *Manager) install(ctx context.Context, old *Installation, home, so
 
 func binaryMatches(source, destination string) (bool, error) {
 	hashFile := func(path string) ([]byte, error) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return nil, fmt.Errorf("%s is not a regular executable; symlinks are not accepted", path)
+		}
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
 		defer file.Close()
-		info, err := file.Stat()
+		openedInfo, err := file.Stat()
 		if err != nil {
 			return nil, err
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
-			return nil, fmt.Errorf("%s is not a regular executable", path)
+		if !os.SameFile(info, openedInfo) {
+			return nil, fmt.Errorf("%s changed while inspecting the executable", path)
 		}
 		hash := sha256.New()
 		if _, err := io.Copy(hash, file); err != nil {
@@ -642,6 +658,27 @@ func daemonReady(ctx context.Context, home string) error {
 		}
 		address = state.IP
 	}
-	_, err = discovery.NewProber().Hello(ctx, address, cfg.Network.Port)
-	return err
+	store, err := storage.Inspect(ctx, filepath.Join(home, "relay.db"))
+	if err != nil {
+		return err
+	}
+	node, nodeErr := store.ExistingNode(ctx)
+	if err := errors.Join(nodeErr, store.Close()); err != nil {
+		return err
+	}
+	runtimeState, err := daemon.ReadRuntime(filepath.Join(home, "daemon.lock"))
+	if err != nil {
+		return err
+	}
+	if runtimeState.NodeID != node.ID || runtimeState.Address != net.JoinHostPort(address, strconv.Itoa(cfg.Network.Port)) {
+		return errors.New("service listener does not match this Relay home's node identity and configured address")
+	}
+	hello, err := discovery.NewProber().Hello(ctx, address, cfg.Network.Port)
+	if err != nil {
+		return err
+	}
+	if hello.Node.ID != node.ID || hello.Version != runtimeState.Version {
+		return errors.New("service listener identity or version differs from this Relay home's daemon; inspect the running process and port")
+	}
+	return nil
 }

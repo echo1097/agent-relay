@@ -1,6 +1,7 @@
 package agents_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -254,5 +255,24 @@ func TestConcurrentHeartbeatAndMetadata(t *testing.T) {
 	agent, err = fixture.registry.Get(ctx, agent.ID)
 	if err != nil || agent.Status != agents.Busy || agent.Task != "saved task" {
 		t.Fatalf("lost concurrent update: %+v, %v", agent, err)
+	}
+}
+
+func TestCombinedOfflineUpdateLogsWithoutMetadata(t *testing.T) {
+	fixture := newFixture(t)
+	var output bytes.Buffer
+	registry, err := agents.New(fixture.store, fixture.nodeID, agents.Options{OfflineAfter: 30 * time.Second, Logger: slog.New(slog.NewTextHandler(&output, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := registry.Register(context.Background(), agents.Registration{DisplayName: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Update(context.Background(), agent.ID, agents.Offline, agents.Metadata{Task: "private-context-sentinel", Cwd: "/private/path"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "agent offline") || strings.Contains(output.String(), "private-context-sentinel") || strings.Contains(output.String(), "/private/path") {
+		t.Fatal("offline logging contract violated", output.String())
 	}
 }

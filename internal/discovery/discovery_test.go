@@ -1,9 +1,11 @@
 package discovery
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -216,5 +218,23 @@ func TestProbeDeadline(t *testing.T) {
 	}
 	if time.Since(start) > time.Second {
 		t.Fatal("timeout did not bound request")
+	}
+}
+
+func TestDisappearingPeerLogsOnce(t *testing.T) {
+	var output bytes.Buffer
+	client := &fakeClient{status: tailscale.Status{Connected: true, IP: "100.64.0.1", Peers: []tailscale.Peer{{ID: "device-b", IP: "100.64.0.2"}}}}
+	manager := &Manager{Client: client, Prober: &fakeProber{hello: validHello()}, Logger: slog.New(slog.NewTextHandler(&output, nil))}
+	if _, err := manager.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.status.Peers = nil
+	for range 2 {
+		if _, err := manager.Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Count(output.String(), "peer lost") != 1 || !strings.Contains(output.String(), "peer discovered") {
+		t.Fatal("missing or repeated transition event", output.String())
 	}
 }
