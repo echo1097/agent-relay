@@ -17,10 +17,13 @@ import (
 	"agent-relay/internal/daemon"
 	"agent-relay/internal/discovery"
 	"agent-relay/internal/logging"
+	"agent-relay/internal/mcp"
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/relay"
 	"agent-relay/internal/storage"
 	"agent-relay/internal/tailscale"
 	"agent-relay/internal/transport"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const usage = `Agent Relay
@@ -37,6 +40,7 @@ Commands:
   trust-state  Inspect peer trust and device binding
   doctor    Check Tailscale and live peer reachability
   agents    List, inspect, register, or update local agents (agents help)
+  mcp       Serve agent tools over stdio (one coding session per process)
   messages  Queue messages or inspect local inboxes (messages help)
   version   Print the binary version
   help      Show this help
@@ -68,7 +72,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		}
 		_, err := fmt.Fprintf(output, "agent-relay %s\n", version)
 		return err
-	case "daemon", "status", "agents", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
+	case "mcp", "daemon", "status", "agents", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -76,6 +80,16 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	flags.SetOutput(errorOutput)
 	home := flags.String("home", "", "application directory")
 	commandArgs := args[1:]
+	var registration agents.Registration
+	if command == "mcp" {
+		flags.StringVar(&registration.ID, "agent-id", "", "resume an existing local agent ID; do not share between live clients")
+		flags.StringVar(&registration.DisplayName, "name", "", "public display name; defaults to MCP client name")
+		flags.StringVar(&registration.Provider, "provider", "", "public provider name; defaults to MCP client name")
+		flags.StringVar(&registration.Task, "task", "", "public task summary")
+		flags.StringVar(&registration.Project, "project", "", "public project")
+		flags.StringVar(&registration.Repository, "repository", "", "public repository")
+		flags.StringVar(&registration.Branch, "branch", "", "public branch")
+	}
 	trustCommand := command == "trust" || command == "block" || command == "untrust" || command == "trust-state"
 	peerValue := ""
 	if trustCommand && len(commandArgs) > 0 && !strings.HasPrefix(commandArgs[0], "-") {
@@ -194,6 +208,13 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	registry, err := agents.New(store, node.ID, agents.Options{OfflineAfter: time.Duration(cfg.Presence.OfflineAfterSeconds) * time.Second, Logger: logger})
 	if err != nil {
 		return err
+	}
+	if command == "mcp" {
+		service := transport.New(store, node.ID, "", cfg, logger)
+		defer service.Client.CloseIdleConnections()
+		directory := &relay.Directory{Registry: registry, Store: store, Node: protocol.PublicNode(node.ID, node.Name), Path: filepath.Join(paths.Home, "peers.json"), Port: cfg.Network.Port, Development: cfg.Network.Development, Tailscale: client, Prober: discovery.NewProber()}
+		session := &relay.Session{Directory: directory, Delivery: service, Registration: registration}
+		return mcp.Run(ctx, session, &sdk.StdioTransport{}, time.Duration(cfg.Presence.HeartbeatSeconds)*time.Second, version, logger)
 	}
 	if command == "messages" {
 		service := transport.New(store, node.ID, "", cfg, logger)
