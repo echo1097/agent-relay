@@ -137,11 +137,11 @@ func (store *Store) GetMessage(ctx context.Context, messageID string) (messaging
 }
 
 func (store *Store) SaveMessage(ctx context.Context, message messaging.Message, now time.Time) (messaging.Message, bool, error) {
-	return store.insertMessage(ctx, message, now, false)
+	return store.insertMessage(ctx, message, now, false, "", time.Time{})
 }
 
 func (store *Store) ReceiveMessage(ctx context.Context, message messaging.Message, now time.Time) (messaging.Message, bool, error) {
-	return store.insertMessage(ctx, message, now, true)
+	return store.insertMessage(ctx, message, now, true, "", time.Time{})
 }
 
 func sameMessage(first, second messaging.Message) bool {
@@ -149,7 +149,7 @@ func sameMessage(first, second messaging.Message) bool {
 	return first.ID == second.ID && first.ConversationID == second.ConversationID && first.SenderAgentID == second.SenderAgentID && first.RecipientAgentID == second.RecipientAgentID && first.Type == second.Type && first.Text == second.Text && first.ReplyTo == second.ReplyTo && first.CreatedAt.Equal(second.CreatedAt) && sameExpiration
 }
 
-func (store *Store) insertMessage(ctx context.Context, message messaging.Message, now time.Time, incoming bool) (messaging.Message, bool, error) {
+func (store *Store) insertMessage(ctx context.Context, message messaging.Message, now time.Time, incoming bool, peerID string, deadline time.Time) (messaging.Message, bool, error) {
 	if !validTime(now) {
 		return messaging.Message{}, false, messaging.ErrInvalid
 	}
@@ -163,6 +163,11 @@ func (store *Store) insertMessage(ctx context.Context, message messaging.Message
 	var saved messaging.Message
 	inserted := false
 	err := store.messageTransaction(ctx, func(conn *sql.Conn) error {
+		if peerID != "" {
+			if err := prepareDelivery(ctx, conn, message, incoming, peerID); err != nil {
+				return err
+			}
+		}
 		conversation, err := scanConversation(conn.QueryRowContext(ctx, "SELECT "+conversationColumns+" FROM conversations WHERE id = ?", message.ConversationID))
 		if err != nil {
 			return err
@@ -184,6 +189,9 @@ func (store *Store) insertMessage(ctx context.Context, message messaging.Message
 		}
 		if !errors.Is(err, messaging.ErrNotFound) {
 			return err
+		}
+		if peerID != "" && incoming && message.ExpiresAt != nil && !message.ExpiresAt.After(now) {
+			return messaging.ErrExpired
 		}
 		status := messaging.Created
 		var receivedAt, deliveredAt any
@@ -216,6 +224,11 @@ func (store *Store) insertMessage(ctx context.Context, message messaging.Message
 		_, err = conn.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, sender_agent_id, recipient_agent_id, type, text, reply_to, status, created_at, expires_at, delivered_at, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, message.ID, message.ConversationID, message.SenderAgentID, message.RecipientAgentID, message.Type, message.Text, replyTo, status, messageTime(message.CreatedAt), optionalTime(message.ExpiresAt), deliveredAt, receivedAt)
 		if err != nil {
 			return err
+		}
+		if peerID != "" && !incoming {
+			if _, err := conn.ExecContext(ctx, "INSERT INTO outbox (message_id, node_id, next_attempt_at, deadline) VALUES (?, ?, ?, ?)", message.ID, peerID, messageTime(now), messageTime(deadline)); err != nil {
+				return err
+			}
 		}
 		if incoming {
 			if _, err := conn.ExecContext(ctx, "INSERT INTO processed_messages (message_id, processed_at) VALUES (?, ?)", message.ID, messageTime(now)); err != nil {

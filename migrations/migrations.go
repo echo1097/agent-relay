@@ -81,5 +81,23 @@ CREATE TABLE processed_messages (
  message_id TEXT PRIMARY KEY NOT NULL REFERENCES messages(id),
  processed_at TEXT NOT NULL
 );
+`}, {Version: 4, SQL: `
+CREATE TABLE conversation_peers (
+ conversation_id TEXT PRIMARY KEY REFERENCES conversations(id),
+ node_id TEXT NOT NULL
+);
+CREATE TABLE remote_agents (
+ agent_id TEXT PRIMARY KEY,
+ node_id TEXT NOT NULL
+);
+CREATE TABLE outbox (
+ message_id TEXT PRIMARY KEY REFERENCES messages(id),
+ node_id TEXT NOT NULL,
+ attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt_at TEXT NOT NULL,
+ deadline TEXT NOT NULL,
+ last_error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX outbox_due ON outbox(next_attempt_at);
 `}}
 }

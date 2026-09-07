@@ -28,6 +28,7 @@ const (
 )
 
 var (
+	ErrExpired    = errors.New("message expired")
 	ErrNotFound   = errors.New("conversation or message not found")
 	ErrInvalid    = errors.New("invalid conversation or message")
 	ErrConflict   = errors.New("message ID already has different content")
