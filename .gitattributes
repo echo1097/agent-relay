@@ -1,0 +1,15 @@
+* text=auto eol=lf
+*.go diff=golang
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
