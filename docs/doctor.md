@@ -1,0 +1,33 @@
+# Doctor and operational recovery
+
+Run `agent-relay doctor --home /absolute/path/to/relay-home` with the same directory used by the daemon. Each check prints PASS or FAIL. Failures include a repair suggestion, and the command exits nonzero if any check fails. Independent checks continue after configuration, database or Tailscale failures. Network and database checks share a 45-second context budget; individual network requests have shorter deadlines.
+
+Doctor checks the binary version, optional TOML configuration, SQLite readability and quick integrity/foreign-key checks, a rolled-back database write, consecutive migrations, saved node identity, registered agents, stored trust, Codex and Claude MCP entries, Tailscale installation/running/connectivity/IPv4, daemon lock ownership, actual listener interface and port, live listener identity and version, discovery cache, live Relay peers, and every trusted peer's current reachability and identity.
+
+Doctor does not initialize a missing database, apply migrations, register agents, enroll trust, or create a node identity. The write probe updates the existing node inside a transaction and always rolls back. A missing optional config file uses defaults. A busy SQLite writer can cause the write probe to fail; retry after contention ends before treating it as corruption.
+
+The daemon records its actual bound address, node ID and binary version in its locked `daemon.lock` file. Doctor compares that record with current configuration and Tailscale IP, and checks a live hello response. Old daemons without this record require a restart. A stale unlocked record never counts as a running daemon. This is a diagnostic check of Relay's own listener, not an operating-system inventory of unrelated open ports.
+
+MCP checks use the same client detection and paths as `setup`, including `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. Each detected client must have an enabled stdio Agent Relay entry, an existing absolute executable and `mcp --home` arguments matching the diagnosed directory. Custom `setup --config` files outside those paths are not automatically searched. Doctor does not launch clients or invoke a model. It cannot establish whether a client has reloaded its configuration, has granted tool access, or is currently polling its inbox.
+
+No registered agents, no discovered Relay peers, or no trusted peers is reported as incomplete setup with a nonzero exit. Offline registered agents count as valid registrations. Ordinary tailnet devices without Relay are not individually reported as failures. Incompatible or malformed Relay peers are reported with upgrade/port guidance. Trusted reachability uses the saved Tailscale device identity and saved peer port, and validates the returned Relay node ID. A successful hello does not prove that the remote owner has reciprocally trusted the local node.
+
+## Recovery behavior
+
+- Shutdown stops new HTTP work, cancels discovery and delivery loops, and allows active HTTP writes up to five seconds to finish. Forced HTTP closure cancels request contexts; handlers and background workers finish before SQLite is closed and the daemon lock is released.
+- Restart preserves node/agent IDs, trust, conversations and the durable outbox. Work interrupted in `sending` is retried with its original message ID, so a lost acknowledgment does not duplicate the recipient inbox.
+- Individual delivery attempts remain bounded to five seconds and the message deadline. Normal peer retry delays remain 5, 15, 30, 60 and 300 seconds, followed by the configured slower interval. Queue-processing errors back off to at most 30 seconds instead of repeating four times per second.
+- Corrupt discovery cache contents are rebuilt from live peers. Failure to persist the cache is logged. A slow discovery probe no longer consumes the context used to save successful peer observations. Cached discovery does not grant trust.
+- Gaps, invalid versions and newer schemas are rejected at startup. An incomplete or invalid saved identity produces a repair error rather than generating a replacement. Doctor never repairs these conditions automatically.
+- HTTP messages and acknowledgments are bounded and validated. Unsupported protocol replies are surfaced as terminal delivery errors with upgrade guidance. Duplicate acknowledgment and agent-list version headers are rejected.
+- Logs include queue, receipt, delivery, response, trust, presence and discovery events using IDs and fixed failure reasons. Message bodies and arbitrary remote rejection text are excluded. Repeated delivery receipts do not create repeated receipt events. MCP SDK logging is disabled because it can include client-supplied protocol text; Relay emits its own session lifecycle events.
+
+Before database recovery, stop Relay and preserve the database together with any `relay.db-wal` and `relay.db-shm` files. Restore a verified backup rather than deleting the database to repair an identity or migration error. `peers.json` is disposable and can be rebuilt. Restart the backend daemon after changing its binary or configuration; reconnect MCP clients after changing their configuration.
+
+## Verification
+
+The hardening suite covers healthy doctor output, independent failure reporting, no diagnostic initialization, identity preservation, migration gaps, listener mismatch, trusted identity mismatch, MCP path/executable checks, corrupt discovery cache recovery, shutdown admission/draining, interrupted sending recovery, duplicate receipts and log privacy. Existing tests cover cancellation, malformed/oversized input, protocol mismatch, timeouts, lost acknowledgments, expiration, trust revocation, SQLite rollback, MCP sessions and the complete four-message conversation.
+
+Real-tailnet verification on September 6, 2026 used separate audit directories on machines A and B and port 47833. Both complete doctor reports passed, including temporary Codex/Claude configuration checks and reciprocal trusted peer reachability. A question queued while B was stopped delivered after both audit daemons restarted, and B's response returned to A with the original conversation link. The original application directories and running daemons were preserved. Audit daemons were stopped after testing. No model-provider APIs were used.
+
+`go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...` all passed on the final implementation. The real OS service integration test remains opt-in via `AGENT_RELAY_SERVICE_TEST=1`; ordinary tests exercise service behavior through fakes. The previous live service checks are recorded in [setup/service verification](setup-service-verification.md).

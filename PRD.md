@@ -11,13 +11,13 @@ The repository currently implements the project foundation, local agent registry
 | Phase 1: Foundation | Implemented. |
 | Phase 2: Local agent registry | Implemented. Busy and idle are explicitly set by callers; automatic idle detection is not implemented. |
 | Phase 3: Inter-node transport | HTTP foundation and message/question/response delivery implemented, with durable acknowledgments and retries. |
-| Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery and cache, and initial diagnostics. Real-tailnet validation remains outstanding. |
+| Phase 4: Tailscale integration | Implemented with IPv4 detection, Tailscale-only production binding, peer discovery/cache and complete diagnostics. Live two-machine verification passed. |
 | Phases 5 and 6: Messaging and responses | Durable inboxes, ordered history, response linkage, answered timestamps, follow-ups, idempotency, expiration, HTTP transport, and CLI messaging implemented. The section 56 conversation test passes both through internal APIs and through MCP. |
 | Phase 7: Trust | Implemented: SQLite unknown/trusted/blocked states, stable Tailscale device bindings, live request and retry enforcement, CLI trust/block/inspection, and diagnostics. |
 | Phase 8: MCP | Implemented: eight stdio tools, automatic registration, heartbeats, session access checks, peer lookup, and MCP conversation tests. |
 | Phase 9: Services | Implemented: macOS launchd and Linux systemd user lifecycle commands, stable private binary installation, backups, and graceful restarts. |
 | Phase 10: Installer | Codex/Claude Code local MCP setup is implemented. Download/checksum installer remains pending. |
-| Phase 11: Hardening | Some foundational validation, timeouts, and shutdown handling exist; the full phase remains pending. |
+| Phase 11: Hardening | Doctor diagnostics and operational hardening implemented and tested; see [doctor and recovery](docs/doctor.md). |
 
 ### Built: project foundation
 
@@ -1786,7 +1786,7 @@ Should display recent conversations.
 
 # 44. Doctor Command
 
-Current implementation: initial checks cover Tailscale installation, daemon reachability, connection and IPv4, the local Agent Relay listener and identity, and compatible remote peers. SQLite peer trust states and enrollment guidance are included. MCP configuration checks and the full diagnostic set illustrated below remain pending.
+Current implementation: doctor checks every diagnostic category below, plus configuration, migrations, persistent identity, registered agents, MCP entries, actual daemon listener metadata and all trusted peer identities. Failures include remediation and a nonzero exit; independent checks continue after failure. Diagnostic storage access does not initialize or migrate databases. See [doctor and operational recovery](docs/doctor.md) for exact behavior and verification.
 
 `agent-relay doctor` is required.
 
@@ -2420,7 +2420,7 @@ Test two daemon instances locally.
 
 ## Phase 4: Tailscale integration
 
-Status: implemented through a fakeable Tailscale client, production IPv4 binding, bounded hello probes, protocol compatibility checks, peer cache and last-seen state, periodic refresh, disappearance handling, and CLI diagnostics. Tests use fakes and localhost servers; real-tailnet testing remains outstanding.
+Status: implemented through a fakeable Tailscale client, production IPv4 binding, bounded hello probes, protocol compatibility checks, peer cache and last-seen state, periodic refresh, disappearance handling, and CLI diagnostics. Tests use fakes and localhost servers; live two-machine Tailscale discovery, diagnostics and restart delivery also passed.
 
 Build:
 
@@ -2524,7 +2524,9 @@ doctor
 
 ## Phase 11: Hardening
 
-Add:
+Status: implemented with comprehensive doctor checks, bounded HTTP and background lifecycles, interrupted-delivery recovery, migration and identity checks, cache recovery, protocol validation, and message-body-safe logging. See [operational recovery and verification](docs/doctor.md).
+
+Built:
 
 ```text
 timeouts

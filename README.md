@@ -167,3 +167,5 @@ agent-relay setup --home /absolute/path/to/.agent-relay
 Services run as your login user through macOS launchd or Linux systemd. Use `service start`, `stop`, `restart`, and `uninstall` to manage them. Install copies the executable to a stable user directory and starts it at login. Rerun `service install` from a new build to upgrade the installed backend; `service restart` restarts its existing private copy. Stop any foreground daemon using the same home first. See [exact file changes, logs, upgrades, and manual troubleshooting](docs/services.md). Windows services remain future work.
 
 See [client and two-platform service verification](docs/setup-service-verification.md) for the tested behavior and remaining reboot-test limits.
+
+See [Doctor and operational recovery](docs/doctor.md) for the complete diagnostic checks, troubleshooting, restart behavior, logging privacy and hardening verification.
