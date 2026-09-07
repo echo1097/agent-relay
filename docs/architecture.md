@@ -1,6 +1,6 @@
 # Local architecture
 
-The PRD is the source of truth. Phases 1 and 2 are implemented. See [local agents and presence](agents.md) for registry API behavior.
+The PRD is the source of truth. Phases 1 through 3 are implemented. See [local agents and presence](agents.md) for registry behavior and [HTTP protocol](protocol.md) for the protocol foundation.
 
 `cmd/agent-relay` establishes signal cancellation and invokes `internal/cli`. The CLI composes configuration, directories, structured logging, storage, the agent registry, and the local daemon lifecycle. The registry uses a small storage interface implemented by SQLite; no transport interfaces exist yet.
 
@@ -15,6 +15,7 @@ The PRD is the source of truth. Phases 1 and 2 are implemented. See [local agent
 - Node IDs use `node_` followed by a full UUIDv7 generated with cryptographic randomness. The OS hostname is captured at initial creation and remains stable with the identity. The local node's trust state is `trusted`; no peer trust behavior is implemented.
 - Ordered migration SQL lives in the `migrations` Go package and is compiled into the binary. Each new schema change adds a consecutive migration. An immediate SQLite transaction serializes migration application, records versions and timestamps, and rolls back failures. Newer schemas are rejected. Existing migrations must not be edited after release.
 - SQLite uses WAL, full synchronization, foreign key enforcement, a five-second busy timeout, and one pooled connection per store. Initial identity creation is transactional so concurrent launches share one identity.
-- The foreground daemon owns the process lock and checks local presence every second. Shutdown marks local agents offline and closes the lock, database, and logs. OS service registration remains a later phase.
+- The foreground daemon owns the process lock, serves the three HTTP endpoints, and checks local presence every second. HTTP shutdown drains active requests before local agents are marked offline and the lock, database, and logs are closed. OS service registration remains a later phase.
+- The HTTP listener defaults to loopback pending Tailscale integration. `internal/protocol` defines validated public objects separate from local storage models. The daemon uses only the standard library for HTTP and does not expose agent mutation endpoints.
 
 Tests cover configuration validation, local directory creation, logging levels, command handling, identity persistence, concurrent initialization, migration rollback, future-schema rejection, upgrades from the foundation schema, agent registry operations, and daemon lifecycle.

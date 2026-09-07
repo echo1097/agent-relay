@@ -1,6 +1,6 @@
 # Agent Relay
 
-Local foundation and agent registry for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground daemon. It does not implement networking, Tailscale, MCP, messaging, or service installation.
+Local foundation, agent registry, and HTTP protocol for the [Agent Relay PRD](PRD.md), implemented in Go. This provides configuration, logging, SQLite migrations, persistent node and agent identities, metadata, presence, and a foreground HTTP daemon. It does not implement Tailscale, peer discovery, MCP, messaging, conversations, or service installation.
 
 Requires Go 1.25 or newer. The current daemon lock supports macOS and Linux. SQLite is compiled into the executable without CGO or a separate database service.
 
@@ -37,7 +37,7 @@ wait "$relayPid"
 cat "$relayHome/logs/agent-relay.log"
 ```
 
-The node ID remains the same on each invocation. Status reports `Stopped`, then `Running (local registry)`, then `Stopped`. The daemon checks local presence and handles SIGINT or SIGTERM. It opens no listening sockets. A second daemon using the same directory exits with an error. The OS releases the lock even if the process crashes; the lock file itself remains and must not be deleted while a daemon is running.
+The node ID remains the same on each invocation. Status reports `Stopped`, then `Running`, then `Stopped`. The daemon serves HTTP on `127.0.0.1:47832` by default, checks local presence, and handles SIGINT or SIGTERM. A second daemon using the same directory exits with an error. The OS releases the lock even if the process crashes; the lock file itself remains and must not be deleted while a daemon is running.
 
 ## Configuration and data
 
@@ -54,6 +54,7 @@ Create `config.toml` if you want to override defaults:
 
 ```toml
 [network]
+bind_address = "127.0.0.1"
 port = 47832
 
 [discovery]
@@ -82,7 +83,7 @@ See [architecture decisions](docs/architecture.md) for foundation boundaries and
 
 ## Local agent registry
 
-Phase 2 adds durable local agent registration and presence. No network services are opened. The daemon now checks for timed-out agents every second and marks local agents offline when it shuts down. Restart a running daemon after rebuilding to use this behavior.
+Phase 2 adds durable local agent registration and presence. The daemon checks for timed-out agents every second and marks local agents offline when it shuts down. Restart a running daemon after rebuilding to use this behavior.
 
 The internal Go API and its update rules are described in [local agents and presence](docs/agents.md).
 
@@ -112,3 +113,9 @@ sleep 4
 Registration prints the ID to stdout for shell capture. Get, heartbeat, status, and metadata updates print JSON. Logs go to stderr and the local log file. The get after the four-second pause reports `offline`; reconnecting preserves the ID. Reconnection and metadata replacement clear any omitted metadata fields. Multiple sessions can share the same display name.
 
 `agent-relay agents help` shows all actions and flags. Agent commands access the local database directly, so they work with or without a running daemon. They do not start a coding agent or communicate with any model provider.
+
+## HTTP protocol
+
+Phase 3 adds `GET /v1/health`, `GET /v1/hello`, and `GET /v1/agents`. The default listener is loopback only. Configure `network.bind_address` and `network.port` for a different local interface or port. Tailscale-only binding will come in a later phase.
+
+The HTTP API uses validated public response types, protocol version 1, JSON errors, bounded request times, and graceful shutdown. Working directories and file lists are never included in public agent responses. See [HTTP protocol](docs/protocol.md) for response formats, metadata rules, timeouts, and curl examples.

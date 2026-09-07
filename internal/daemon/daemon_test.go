@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-relay/internal/agents"
+	"agent-relay/internal/protocol"
 	"agent-relay/internal/storage"
 )
 
@@ -35,7 +36,8 @@ func TestLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, path, logger, registry) }()
+	options := HTTPOptions{Address: "127.0.0.1:0", Node: protocol.PublicNode(node.ID, node.Name), Version: "test"}
+	go func() { done <- Run(ctx, path, logger, registry, options) }()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		running, err := Running(path)
@@ -50,7 +52,7 @@ func TestLifecycle(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if err := Run(ctx, path, logger, registry); err == nil {
+	if err := Run(ctx, path, logger, registry, options); err == nil {
 		t.Fatal("second daemon was accepted")
 	}
 	cancel()
@@ -95,7 +97,8 @@ func TestDaemonExpiresAgentsWithoutReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, filepath.Join(home, "daemon.lock"), logger, registry) }()
+	options := HTTPOptions{Address: "127.0.0.1:0", Node: protocol.PublicNode(node.ID, node.Name), Version: "test"}
+	go func() { done <- Run(ctx, filepath.Join(home, "daemon.lock"), logger, registry, options) }()
 	defer func() {
 		cancel()
 		select {

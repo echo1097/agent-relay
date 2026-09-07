@@ -6,14 +6,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"agent-relay/internal/agents"
 	"agent-relay/internal/config"
 	"agent-relay/internal/daemon"
 	"agent-relay/internal/logging"
+	"agent-relay/internal/protocol"
 	"agent-relay/internal/storage"
 )
 
@@ -118,7 +121,7 @@ func Run(ctx context.Context, args []string, output, errorOutput io.Writer, vers
 		return err
 	}
 	if command == "daemon" {
-		return daemon.Run(ctx, paths.Lock, logger, registry)
+		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Address: net.JoinHostPort(cfg.Network.BindAddress, strconv.Itoa(cfg.Network.Port)), Node: protocol.PublicNode(node.ID, node.Name), Version: version})
 	}
 	if command == "agents" {
 		return runAgents(ctx, registry, agentFlags, output)
@@ -129,7 +132,7 @@ func Run(ctx context.Context, args []string, output, errorOutput io.Writer, vers
 	}
 	daemonState := "Stopped"
 	if running {
-		daemonState = "Running (local registry)"
+		daemonState = "Running"
 	}
 	schemaVersion, err := store.SchemaVersion(ctx)
 	if err != nil {

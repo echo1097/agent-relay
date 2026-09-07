@@ -15,6 +15,8 @@ func TestLoad(t *testing.T) {
 		{"syntax", "[logging", true},
 		{"unknown", "[logging]\nlevle = 'debug'", true},
 		{"port", "[network]\nport = 0", true},
+		{"hostname", "[network]\nbind_address = 'localhost'", true},
+		{"empty address", "[network]\nbind_address = ''", true},
 		{"interval", "[discovery]\ninterval_seconds = -1", true},
 		{"presence", "[presence]\noffline_after_seconds = 10", true},
 		{"level", "[logging]\nlevel = 'trace'", true},
@@ -34,6 +36,22 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("unexpected config: %+v", cfg)
 			}
 		})
+	}
+}
+
+func TestNetworkConfiguration(t *testing.T) {
+	if Defaults().Network.BindAddress != "127.0.0.1" {
+		t.Fatal("default must be loopback")
+	}
+	for _, address := range []string{"127.0.0.1", "::1", "0.0.0.0", "100.75.42.18"} {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(path, []byte("[network]\nbind_address = '"+address+"'\nport = 47833\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil || cfg.Network.BindAddress != address || cfg.Network.Port != 47833 {
+			t.Fatalf("network config: %+v, %v", cfg.Network, err)
+		}
 	}
 }
 
