@@ -62,6 +62,9 @@ esac
 set -eu
 printf '%s\n' "$*" >> "$testLog"
 if [ "$1" = version ]; then echo 'agent-relay v0.1.0'; fi
+if [ "$1" = status ]; then printf 'Node\n  Mac\n  node_test-123\n'; fi
+if [ "$1" != version ]; then echo 'verbose diagnostic detail'; fi
+if [ "$1" = "${testCommandFailure:-none}" ]; then echo 'specific failure reason' >&2; fi
 [ "$1" != "${testCommandFailure:-none}" ] || exit 1
 `)
 	binaryPath := filepath.Join(root, "release-binary")
@@ -237,5 +240,23 @@ func TestInstallerRetainsRecoveryOnSetupFailure(t *testing.T) {
 				t.Fatalf("retry failed: %v: %s", err, output)
 			}
 		})
+	}
+}
+
+func TestInstallerConciseOutput(t *testing.T) {
+	state := newInstallerTest(t)
+	output, err := state.run(t, []string{"NO_COLOR=1", "TERM=xterm-256color"})
+	if err != nil {
+		t.Fatalf("%v: %s", err, output)
+	}
+	if strings.Contains(output, "verbose diagnostic detail") || strings.Contains(output, "\x1b[") {
+		t.Fatalf("unexpected noise: %s", output)
+	}
+	if !strings.Contains(output, "agent-relay trust node_test-123") || !strings.HasSuffix(output, "node_test-123\n") {
+		t.Fatalf("missing pairing details: %s", output)
+	}
+	output, err = state.run(t, []string{"testCommandFailure=doctor"})
+	if err == nil || !strings.Contains(output, "specific failure reason") || !strings.Contains(output, "verbose diagnostic detail") {
+		t.Fatalf("failure diagnostics missing: %v: %s", err, output)
 	}
 }

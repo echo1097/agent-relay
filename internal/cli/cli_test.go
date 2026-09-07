@@ -162,3 +162,25 @@ func (prober doctorProber) Hello(_ context.Context, ip string, _ int) (protocol.
 	}
 	return prober.remote, nil
 }
+
+func TestNodeId(t *testing.T) {
+	relayHome := filepath.Join(t.TempDir(), "relay")
+	var firstOutput bytes.Buffer
+	if err := runWithClient(context.Background(), []string{"nodeid", "--home", relayHome}, &firstOutput, &firstOutput, "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	nodeId := strings.TrimSpace(firstOutput.String())
+	if !strings.HasPrefix(nodeId, "node_") || firstOutput.String() != nodeId+"\n" || strings.ContainsAny(nodeId, " \n\t") {
+		t.Fatalf("expected only the node ID: %q", firstOutput.String())
+	}
+	var nextOutput bytes.Buffer
+	if err := runWithClient(context.Background(), []string{"nodeid", "--home", relayHome}, &nextOutput, &nextOutput, "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if nextOutput.String() != firstOutput.String() {
+		t.Fatal("node identity changed")
+	}
+	if err := Run(context.Background(), []string{"nodeid", "extra", "--home", relayHome}, &nextOutput, &nextOutput, "test"); err == nil {
+		t.Fatal("accepted extra arguments")
+	}
+}

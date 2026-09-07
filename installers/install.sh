@@ -2,7 +2,7 @@
 set -eu
 
 fail() {
-    printf '\nAgent Relay: %s\n' "$*" >&2
+    printf '\n%sAgent Relay: %s%s\n' "$red" "$*" "$reset" >&2
     exit 1
 }
 
@@ -15,6 +15,32 @@ cleanup() {
         printf 'Setup stopped during: %s. Completed steps are retained; fix the error and rerun.\n' "$installStep" >&2
     fi
     exit "$exitCode"
+}
+
+setupColors() {
+    green=''
+    cyan=''
+    red=''
+    reset=''
+    if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${NO_COLOR:-}" ]; then
+        green=$(printf '\033[32m')
+        cyan=$(printf '\033[36m')
+        red=$(printf '\033[31m')
+        reset=$(printf '\033[0m')
+    fi
+}
+
+runStep() {
+    stepLabel=$1
+    shift
+    printf '  %s...\n' "$stepLabel"
+    if "$@" > "$tempDir/step.log" 2>&1; then
+        return 0
+    else
+        stepCode=$?
+        cat "$tempDir/step.log" >&2
+        return "$stepCode"
+    fi
 }
 
 hashFile() {
@@ -44,6 +70,7 @@ download() {
 }
 
 main() {
+    setupColors
     tempDir=''
     lockDir=''
     installStep='preflight'
@@ -64,7 +91,7 @@ main() {
     [ -n "${HOME:-}" ] || fail 'HOME is not set.'
     PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     export PATH
-    for toolName in curl awk uname mktemp chmod mkdir mv ln rm rmdir dirname sed cmp grep; do
+    for toolName in curl awk uname mktemp chmod mkdir mv ln rm rmdir dirname sed cmp grep cat; do
         command -v "$toolName" >/dev/null 2>&1 || fail "Required Unix tool is missing: $toolName"
     done
     command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || fail 'Install sha256sum or shasum to verify downloads.'
@@ -97,8 +124,8 @@ main() {
             printf 'Agent Relay is not installed at %s.\n' "$binaryPath"
             return
         fi
-        "$binaryPath" setup --home "$relayHome" --remove --if-present || fail 'MCP removal failed. Review the reported conflict; the executable and service are retained.'
-        "$binaryPath" service uninstall --name "$serviceName" || fail 'Service removal failed. The executable is retained for recovery.'
+        runStep "Disconnecting clients" "$binaryPath" setup --home "$relayHome" --remove --if-present || fail 'MCP removal failed. Review the reported conflict; the executable and service are retained.'
+        runStep "Removing background service" "$binaryPath" service uninstall --name "$serviceName" || fail 'Service removal failed. The executable is retained for recovery.'
         rm "$binaryPath" "$receiptPath"
         printf '\nAgent Relay uninstalled. Data, identities, logs, and private backups are preserved at %s and the documented service/client locations.\n' "$relayHome"
         return
@@ -128,7 +155,8 @@ main() {
     case "$releaseVersion" in *[!a-zA-Z0-9._-]*) fail 'Invalid release tag.' ;; esac
     assetName="agent-relay_${osName}_${cpuArch}"
     releaseBase="https://github.com/echo1097/agent-relay/releases/download/$releaseVersion"
-    printf 'Installing Agent Relay %s for %s %s...\n' "$releaseVersion" "$osName" "$cpuArch"
+    printf '\n%sAgent Relay %s%s\n' "$cyan" "$releaseVersion" "$reset"
+    printf '  Downloading for %s %s...\n' "$osName" "$cpuArch"
     download "$releaseBase/$assetName" "$tempDir/agent-relay"
     download "$releaseBase/SHA256SUMS" "$tempDir/SHA256SUMS"
     expectedHash=$(awk -v assetName="$assetName" '$2 == assetName { count++; value=$1 } END { if (count != 1 || length(value) != 64 || value ~ /[^0-9a-f]/) exit 1; print value }' "$tempDir/SHA256SUMS") || fail 'The checksum manifest has no unique valid entry for this binary.'
@@ -148,17 +176,23 @@ main() {
         ln "$tempDir/receipt" "$receiptPath" || fail 'Receipt path was created concurrently. Review the installation before retrying.'
     fi
     installStep='local initialization'
-    "$binaryPath" status --home "$relayHome" || fail 'Initialization failed; preserve existing data and follow the error above.'
+    runStep "Preparing local data" "$binaryPath" status --home "$relayHome" || fail 'Initialization failed; preserve existing data and follow the error above.'
+    nodeId=$(awk '/^  node_[a-zA-Z0-9-]+$/ { print $1; exit }' "$tempDir/step.log")
+    [ -n "$nodeId" ] || fail 'Could not read the local node ID. Run agent-relay status to inspect the installation.'
     installStep='background service installation'
-    "$binaryPath" service install --home "$relayHome" --name "$serviceName" || fail 'Service startup failed. Check the reported logs and any existing daemon or port conflict. No unowned process was stopped.'
+    runStep "Starting background service" "$binaryPath" service install --home "$relayHome" --name "$serviceName" || fail 'Service startup failed. Check the reported logs and any existing daemon or port conflict. No unowned process was stopped.'
     installStep='MCP client configuration'
-    "$binaryPath" setup --home "$relayHome" --if-present || fail 'Client configuration failed. Review the conflict and use setup --replace only if you intend to replace that entry.'
+    runStep "Connecting MCP clients" "$binaryPath" setup --home "$relayHome" --if-present || fail 'Client configuration failed. Review the conflict and use setup --replace only if you intend to replace that entry.'
     installStep='doctor'
-    "$binaryPath" doctor --home "$relayHome" --installation || fail 'Installation needs attention. Follow doctor remediation above, then rerun.'
-    printf '\nAgent Relay %s installed successfully.\n  Binary: %s\n  Data: %s\n  Background service: %s (starts at login)\n' "$releaseVersion" "$binaryPath" "$relayHome" "$serviceName"
-    printf 'Reconnect configured MCP clients. Complete any NEXT steps above before messaging peers.\n'
+    runStep "Checking installation" "$binaryPath" doctor --home "$relayHome" --installation || fail 'Installation needs attention. Follow doctor remediation above, then rerun.'
+    printf '\n%sAgent Relay %s installed successfully.%s\n' "$green" "$releaseVersion" "$reset"
+    printf 'Background service runs at login. Reconnect Codex or Claude to load Relay tools.\n'
     case ":$PATH:" in *":$binDir:"*) ;; *) printf 'Add this directory to your shell PATH: %s\n' "$binDir" ;; esac
-    printf 'Uninstall with the same environment options: curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh -s -- --uninstall\n'
+    printf '\nPairing: install Relay on the other computer, then run there:\n'
+    printf '  agent-relay trust %s\n' "$nodeId"
+    printf 'Trust the other computer’s node ID on this computer too.\n'
+    printf '\n%sThis computer’s node ID:%s\n%s\n' "$cyan" "$reset" "$nodeId"
+
 }
 
 main "$@"

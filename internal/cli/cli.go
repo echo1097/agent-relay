@@ -32,6 +32,7 @@ Usage: agent-relay <command> [--home PATH]
 
 Commands:
   daemon    Run the local daemon and presence checks in the foreground
+  nodeid    Print this computer's node ID
   status    Initialize local storage and show daemon, node, and database status
   peers     Show cached peer discovery and last-seen state
   trust     Trust a peer by node ID or unique name
@@ -49,7 +50,7 @@ Commands:
   version   Print the binary version
   help      Show this help
 
-Options for daemon, status, peers, doctor, and agent actions:
+Options for daemon, nodeid, status, peers, doctor, and agent actions:
   --home PATH   Application directory (default: ~/.agent-relay)
 `
 
@@ -80,7 +81,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return runSetup(args[1:], output, errorOutput)
 	case "service":
 		return runService(ctx, args[1:], output, errorOutput)
-	case "mcp", "daemon", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
+	case "mcp", "daemon", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -186,6 +187,10 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	node, err := store.Node(ctx, hostname)
 	if err != nil {
 		return fmt.Errorf("load node identity: %w", err)
+	}
+	if command == "nodeid" {
+		_, err := fmt.Fprintln(output, node.ID)
+		return err
 	}
 	logger.Debug("local storage initialized", "node_id", node.ID)
 	if trustCommand {

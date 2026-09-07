@@ -61,3 +61,9 @@ Source: `installers/install.sh`. The Pages workflow publishes only that file and
 Push a reviewed `v*` tag to run the release workflow. It runs tests and vet, cross-compiles all four targets, generates SHA256SUMS, uploads a draft release, then publishes it. Do not move a published tag or replace its assets. A failed draft can be inspected and removed before retrying. Keep release tags compatible with the installer's `v` prefix validation.
 
 See [installer verification](installer-verification.md) for automated coverage, real-host results, and test limits.
+
+### Installer output and pairing
+
+Installation shows short progress lines and prints detailed command output only when a step fails. Terminal output uses color unless `NO_COLOR` is set; redirected output stays plain. Run `agent-relay doctor` for the full diagnostic report.
+
+The final lines show this computer's node ID and a command to trust it from another computer. Trust the other computer's node ID locally as well. Retrieve your ID anytime with `agent-relay nodeid`, or `agent-relay nodeid --home /absolute/path` for a custom data directory. This command prints only the persistent ID and initializes local storage if needed, without requiring a running daemon or Tailscale connection.
