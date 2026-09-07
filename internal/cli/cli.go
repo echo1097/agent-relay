@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"agent-relay/internal/agents"
@@ -30,6 +31,10 @@ Commands:
   daemon    Run the local daemon and presence checks in the foreground
   status    Initialize local storage and show daemon, node, and database status
   peers     Show cached peer discovery and last-seen state
+  trust     Trust a peer by node ID or unique name
+  block     Block a peer immediately
+  untrust   Reset a peer to unknown
+  trust-state  Inspect peer trust and device binding
   doctor    Check Tailscale and live peer reachability
   agents    List, inspect, register, or update local agents (agents help)
   messages  Queue messages or inspect local inboxes (messages help)
@@ -63,7 +68,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		}
 		_, err := fmt.Fprintf(output, "agent-relay %s\n", version)
 		return err
-	case "daemon", "status", "agents", "peers", "doctor", "messages":
+	case "daemon", "status", "agents", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -71,6 +76,11 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	flags.SetOutput(errorOutput)
 	home := flags.String("home", "", "application directory")
 	commandArgs := args[1:]
+	trustCommand := command == "trust" || command == "block" || command == "untrust" || command == "trust-state"
+	peerValue := ""
+	if trustCommand && len(commandArgs) > 0 && !strings.HasPrefix(commandArgs[0], "-") {
+		peerValue, commandArgs = commandArgs[0], commandArgs[1:]
+	}
 	var messageFlags *messageOptions
 	if command == "messages" {
 		if len(commandArgs) > 0 && commandArgs[0] == "help" {
@@ -99,7 +109,10 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		}
 		return err
 	}
-	if flags.NArg() != 0 {
+	if trustCommand && peerValue == "" && flags.NArg() == 1 {
+		peerValue = flags.Arg(0)
+	}
+	if flags.NArg() != 0 && !(trustCommand && flags.NArg() == 1 && peerValue == flags.Arg(0)) {
 		return errors.New("unexpected positional arguments")
 	}
 	paths, err := config.Resolve(*home)
@@ -136,6 +149,47 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return fmt.Errorf("load node identity: %w", err)
 	}
 	logger.Debug("local storage initialized", "node_id", node.ID)
+	if trustCommand {
+		snapshot, err := discovery.Read(filepath.Join(paths.Home, "peers.json"))
+		if err != nil {
+			return err
+		}
+		if peerValue == "" {
+			if command == "trust" || command == "trust-state" {
+				return showTrust(ctx, output, store, snapshot)
+			}
+			return errors.New("specify a peer node ID or unique name")
+		}
+		peer, err := resolveTrustPeer(ctx, store, cfg, snapshot, peerValue)
+		if err != nil {
+			return err
+		}
+		if peer.NodeID == node.ID {
+			return errors.New("the local node is not a peer")
+		}
+		if command == "trust-state" {
+			saved, err := store.PeerTrust(ctx, peer.NodeID)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(output, "%s  %s  %s\n  Tailscale device: %s\n  Development binding: %t\n", peer.Name, peer.NodeID, saved.State, saved.TailscaleID, saved.Development)
+			return err
+		}
+		state := storage.Unknown
+		if command == "trust" {
+			state = storage.Trusted
+		}
+		if command == "block" {
+			state = storage.Blocked
+		}
+		peer, err = setTrust(ctx, store, cfg, client, discovery.NewProber(), peer, state)
+		if err != nil {
+			return err
+		}
+		logger.Info("trust changed", "node_id", peer.NodeID, "state", peer.State)
+		_, err = fmt.Fprintf(output, "%s  %s  %s\n", peer.Name, peer.NodeID, peer.State)
+		return err
+	}
 	registry, err := agents.New(store, node.ID, agents.Options{OfflineAfter: time.Duration(cfg.Presence.OfflineAfterSeconds) * time.Second, Logger: logger})
 	if err != nil {
 		return err
@@ -158,8 +212,10 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		if cfg.Network.Development {
 			boundIP = ""
 		}
-		manager := discovery.Manager{Client: client, Prober: discovery.NewProber(), Port: cfg.Network.Port, LocalID: node.ID, BoundIP: boundIP, Path: filepath.Join(paths.Home, "peers.json"), Logger: logger}
-		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Delivery: transport.New(store, node.ID, localIP, cfg, logger), Address: address, Node: protocol.PublicNode(node.ID, node.Name), Version: version, Background: func(runCtx context.Context) {
+		manager := discovery.Manager{Store: store, Client: client, Prober: discovery.NewProber(), Port: cfg.Network.Port, LocalID: node.ID, BoundIP: boundIP, Path: filepath.Join(paths.Home, "peers.json"), Logger: logger}
+		delivery := transport.New(store, node.ID, localIP, cfg, logger)
+		delivery.Tailscale = client
+		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Delivery: delivery, Address: address, Node: protocol.PublicNode(node.ID, node.Name), Version: version, Background: func(runCtx context.Context) {
 			manager.Run(runCtx, time.Duration(cfg.Discovery.IntervalSeconds)*time.Second)
 		}})
 	}
@@ -171,6 +227,13 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return err
 	}
 	if command == "doctor" {
+		snapshot, err := discovery.Read(filepath.Join(paths.Home, "peers.json"))
+		if err != nil {
+			return err
+		}
+		if err := showTrust(ctx, output, store, snapshot); err != nil {
+			return err
+		}
 		return runDoctor(ctx, output, cfg, client, discovery.NewProber(), node.ID, running)
 	}
 	snapshot, err := discovery.Read(filepath.Join(paths.Home, "peers.json"))
@@ -178,6 +241,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return fmt.Errorf("read peer cache: %w", err)
 	}
 	if command == "peers" {
+		if err := showTrust(ctx, output, store, snapshot); err != nil {
+			return err
+		}
 		return showPeers(output, snapshot, running, cfg.Discovery.IntervalSeconds)
 	}
 	daemonState := "Stopped"
@@ -200,6 +266,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return err
 	}
 	if _, err := showTailscale(ctx, output, client); err != nil {
+		return err
+	}
+	if err := showTrust(ctx, output, store, snapshot); err != nil {
 		return err
 	}
 	return showPeers(output, snapshot, running, cfg.Discovery.IntervalSeconds)

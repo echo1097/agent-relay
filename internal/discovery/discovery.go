@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/storage"
 	"agent-relay/internal/tailscale"
 )
 
@@ -33,6 +34,7 @@ type Snapshot struct {
 }
 
 type Manager struct {
+	Store    *storage.Store
 	Client   tailscale.Client
 	Prober   Prober
 	Port     int
@@ -146,6 +148,11 @@ func (manager *Manager) Refresh(ctx context.Context) (Snapshot, error) {
 		peer.TailscaleID = probe.peer.ID
 		peer.IP = probe.peer.IP
 		if probe.err == nil {
+			if manager.Store != nil {
+				if err := manager.Store.ObservePeer(ctx, probe.hello.Node); err != nil {
+					return next, err
+				}
+			}
 			peer.Node = probe.hello.Node
 			peer.Version = probe.hello.Version
 			peer.LastSeen = time.Now().UTC()

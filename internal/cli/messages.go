@@ -21,7 +21,7 @@ inbox --agent ID
 history --conversation ID
 
 Send durably queues work for the daemon. Get reports the current local status.
-The peer must be explicitly configured in trusted_peers. Questions default to
+The peer must be explicitly trusted with agent-relay trust. Questions default to
 messages.request_expiration_hours. Offline registered recipients retain inboxes.
 `
 

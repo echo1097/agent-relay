@@ -13,15 +13,19 @@ import (
 	"time"
 
 	"agent-relay/internal/config"
+	"agent-relay/internal/discovery"
 	"agent-relay/internal/messaging"
 	"agent-relay/internal/protocol"
 	"agent-relay/internal/storage"
+	"agent-relay/internal/tailscale"
 )
 
 type Service struct {
 	Store         *storage.Store
 	NodeID        string
-	Peers         []config.TrustedPeer
+	Tailscale     tailscale.Client
+	Development   bool
+	Prober        discovery.Prober
 	Client        *http.Client
 	RetryInterval time.Duration
 	Lifetime      time.Duration
@@ -38,27 +42,12 @@ func New(store *storage.Store, nodeID, localIP string, cfg config.Config, logger
 		Transport:     &http.Transport{DialContext: dialer.DialContext, MaxResponseHeaderBytes: 16 * 1024, ResponseHeaderTimeout: 5 * time.Second, IdleConnTimeout: 30 * time.Second},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	return &Service{Store: store, NodeID: nodeID, Peers: append([]config.TrustedPeer(nil), cfg.TrustedPeers...), Client: client, RetryInterval: time.Duration(cfg.Messages.RetryIntervalSeconds) * time.Second, Lifetime: time.Duration(cfg.Messages.RequestExpirationHours) * time.Hour, Logger: logger}
-}
-
-func (service *Service) Peer(nodeID string) (config.TrustedPeer, bool) {
-	for _, peer := range service.Peers {
-		if peer.NodeID == nodeID && nodeID != service.NodeID {
-			return peer, true
-		}
-	}
-	return config.TrustedPeer{}, false
-}
-
-func (service *Service) Trusted(nodeID, remoteAddress string) bool {
-	peer, ok := service.Peer(nodeID)
-	host, _, err := net.SplitHostPort(remoteAddress)
-	return ok && err == nil && net.ParseIP(host).Equal(net.ParseIP(peer.Address))
+	return &Service{Store: store, NodeID: nodeID, Tailscale: tailscale.New(), Development: cfg.Network.Development, Prober: discovery.NewProber(), Client: client, RetryInterval: time.Duration(cfg.Messages.RetryIntervalSeconds) * time.Second, Lifetime: time.Duration(cfg.Messages.RequestExpirationHours) * time.Hour, Logger: logger}
 }
 
 func (service *Service) Queue(ctx context.Context, message messaging.Message, peerID string) (messaging.Message, error) {
-	if _, ok := service.Peer(peerID); !ok {
-		return messaging.Message{}, errors.New(protocol.NodeNotTrusted)
+	if _, err := service.trustedPeer(ctx, peerID); err != nil {
+		return messaging.Message{}, err
 	}
 	now := time.Now().UTC()
 	var err error
@@ -93,7 +82,7 @@ func (service *Service) Queue(ctx context.Context, message messaging.Message, pe
 	if err := protocol.WireMessage(message).Validate(); err != nil {
 		return messaging.Message{}, err
 	}
-	saved, _, err := service.Store.QueueMessage(ctx, message, peerID, now, deadline)
+	saved, _, err := service.Store.QueueAuthorized(ctx, message, peerID, now, deadline)
 	return saved, err
 }
 
@@ -128,9 +117,25 @@ func RetryDelay(attempts int, interval time.Duration) time.Duration {
 }
 
 func (service *Service) Send(ctx context.Context, message messaging.Message, peerID string) (bool, string) {
-	peer, ok := service.Peer(peerID)
-	if !ok {
-		return false, protocol.NodeNotTrusted
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	peer, err := service.trustedPeer(ctx, peerID)
+	if err != nil {
+		return false, err.Error()
+	}
+	if !service.Development {
+		address, err := service.peerAddress(ctx, peer)
+		if err != nil {
+			return true, "PEER_UNREACHABLE: unable to verify Tailscale identity"
+		}
+		peer.Address = address
+		hello, err := service.Prober.Hello(ctx, address, peer.Port)
+		if err != nil {
+			return true, "PEER_UNREACHABLE: unable to verify Relay identity"
+		}
+		if hello.Node.ID != peer.NodeID {
+			return false, protocol.NodeNotTrusted + ": destination Relay identity changed; verify the peer before trusting it"
+		}
 	}
 	wire := protocol.WireMessage(message)
 	if err := wire.Validate(); err != nil {
@@ -159,6 +164,11 @@ func (service *Service) Send(ctx context.Context, message messaging.Message, pee
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
 		if response.StatusCode == 408 || response.StatusCode == 429 || response.StatusCode >= 500 {
 			return true, "PEER_UNAVAILABLE"
+		}
+		data, err := io.ReadAll(io.LimitReader(response.Body, 64*1024+1))
+		var rejection protocol.Error
+		if err == nil && len(data) <= 64*1024 && json.Unmarshal(data, &rejection) == nil && rejection.Validate() == nil && rejection.Error.Code == protocol.NodeNotTrusted {
+			return false, protocol.NodeNotTrusted + ": " + rejection.Error.Message
 		}
 		return false, "DELIVERY_REJECTED"
 	}

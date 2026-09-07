@@ -137,11 +137,11 @@ func (store *Store) GetMessage(ctx context.Context, messageID string) (messaging
 }
 
 func (store *Store) SaveMessage(ctx context.Context, message messaging.Message, now time.Time) (messaging.Message, bool, error) {
-	return store.insertMessage(ctx, message, now, false, "", time.Time{})
+	return store.insertMessage(ctx, message, now, false, "", time.Time{}, false)
 }
 
 func (store *Store) ReceiveMessage(ctx context.Context, message messaging.Message, now time.Time) (messaging.Message, bool, error) {
-	return store.insertMessage(ctx, message, now, true, "", time.Time{})
+	return store.insertMessage(ctx, message, now, true, "", time.Time{}, false)
 }
 
 func sameMessage(first, second messaging.Message) bool {
@@ -149,7 +149,7 @@ func sameMessage(first, second messaging.Message) bool {
 	return first.ID == second.ID && first.ConversationID == second.ConversationID && first.SenderAgentID == second.SenderAgentID && first.RecipientAgentID == second.RecipientAgentID && first.Type == second.Type && first.Text == second.Text && first.ReplyTo == second.ReplyTo && first.CreatedAt.Equal(second.CreatedAt) && sameExpiration
 }
 
-func (store *Store) insertMessage(ctx context.Context, message messaging.Message, now time.Time, incoming bool, peerID string, deadline time.Time) (messaging.Message, bool, error) {
+func (store *Store) insertMessage(ctx context.Context, message messaging.Message, now time.Time, incoming bool, peerID string, deadline time.Time, requireTrust bool) (messaging.Message, bool, error) {
 	if !validTime(now) {
 		return messaging.Message{}, false, messaging.ErrInvalid
 	}
@@ -163,6 +163,19 @@ func (store *Store) insertMessage(ctx context.Context, message messaging.Message
 	var saved messaging.Message
 	inserted := false
 	err := store.messageTransaction(ctx, func(conn *sql.Conn) error {
+		if requireTrust {
+			var state TrustState
+			err := conn.QueryRowContext(ctx, "SELECT state FROM peer_trust WHERE node_id = ?", peerID).Scan(&state)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNodeNotTrusted
+			}
+			if err != nil {
+				return err
+			}
+			if state != Trusted {
+				return ErrNodeNotTrusted
+			}
+		}
 		if peerID != "" {
 			if err := prepareDelivery(ctx, conn, message, incoming, peerID); err != nil {
 				return err

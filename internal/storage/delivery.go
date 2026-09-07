@@ -72,14 +72,14 @@ func (store *Store) ReceiveRemote(ctx context.Context, message messaging.Message
 	if peerID == "" {
 		return messaging.Message{}, false, messaging.ErrInvalid
 	}
-	return store.insertMessage(ctx, message, now, true, peerID, time.Time{})
+	return store.insertMessage(ctx, message, now, true, peerID, time.Time{}, false)
 }
 
 func (store *Store) QueueMessage(ctx context.Context, message messaging.Message, peerID string, now, deadline time.Time) (messaging.Message, bool, error) {
 	if peerID == "" || !validTime(deadline) || !deadline.After(now) {
 		return messaging.Message{}, false, messaging.ErrInvalid
 	}
-	return store.insertMessage(ctx, message, now, false, peerID, deadline)
+	return store.insertMessage(ctx, message, now, false, peerID, deadline, false)
 }
 
 func (store *Store) DueDeliveries(ctx context.Context, now time.Time) ([]Delivery, error) {
@@ -136,4 +136,15 @@ func (store *Store) ConversationPeer(ctx context.Context, conversationID string)
 		return "", messaging.ErrNotFound
 	}
 	return peerID, err
+}
+
+func (store *Store) ReceiveAuthorized(ctx context.Context, message messaging.Message, peerID string, now time.Time) (messaging.Message, bool, error) {
+	return store.insertMessage(ctx, message, now, true, peerID, time.Time{}, true)
+}
+
+func (store *Store) QueueAuthorized(ctx context.Context, message messaging.Message, peerID string, now, deadline time.Time) (messaging.Message, bool, error) {
+	if !validTime(deadline) || !deadline.After(now) {
+		return messaging.Message{}, false, messaging.ErrInvalid
+	}
+	return store.insertMessage(ctx, message, now, false, peerID, deadline, true)
 }

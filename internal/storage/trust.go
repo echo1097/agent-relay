@@ -10,6 +10,8 @@ import (
 	"agent-relay/internal/tailscale"
 )
 
+var ErrNodeNotTrusted = errors.New("NODE_NOT_TRUSTED: peer trust was revoked before persistence")
+
 type TrustState string
 
 const (

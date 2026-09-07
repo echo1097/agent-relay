@@ -1,12 +1,14 @@
 package transport
 
 import (
+	"agent-relay/internal/storage"
 	"context"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -31,8 +33,16 @@ func transportFixture(t *testing.T, handler http.HandlerFunc) (*Service, messagi
 	localID, _ := messaging.NewID("node")
 	peerID, _ := messaging.NewID("node")
 	cfg := config.Defaults()
-	cfg.TrustedPeers = []config.TrustedPeer{{NodeID: peerID, Address: host, Port: port}}
-	service := New(nil, localID, "", cfg, nil)
+	cfg.Network.Development = true
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	if err := store.SetPeerTrust(context.Background(), storage.PeerTrust{NodeID: peerID, Name: "test", State: storage.Trusted, Address: host, Port: port, Development: true}); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store, localID, "", cfg, nil)
 	t.Cleanup(service.Client.CloseIdleConnections)
 	messageID, _ := messaging.NewID("msg")
 	conversationID, _ := messaging.NewID("conv")
@@ -123,9 +133,5 @@ func TestRetryScheduleAndTrust(t *testing.T) {
 		if actual := RetryDelay(index, 15*time.Minute); actual != delay {
 			t.Fatalf("attempt %d: %v", index, actual)
 		}
-	}
-	service := &Service{NodeID: "local", Peers: []config.TrustedPeer{{NodeID: "peer", Address: "100.64.0.2"}}}
-	if !service.Trusted("peer", "100.64.0.2:1234") || service.Trusted("other", "100.64.0.2:1234") || service.Trusted("peer", "100.64.0.3:1234") || service.Trusted("peer", "invalid") {
-		t.Fatal("trust must match both identity and source IP")
 	}
 }

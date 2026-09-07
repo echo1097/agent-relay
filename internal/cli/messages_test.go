@@ -40,6 +40,14 @@ func TestMessageCommands(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0600); err != nil {
 		t.Fatal(err)
 	}
+	trustStore, err := storage.Open(context.Background(), filepath.Join(home, "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := trustStore.SetPeerTrust(context.Background(), storage.PeerTrust{NodeID: peerID, Name: "test", State: storage.Trusted, Address: "127.0.0.1", Port: 47932, Development: true}); err != nil {
+		t.Fatal(err)
+	}
+	trustStore.Close()
 	output, err = run("messages", "send", "--from", senderID, "--to", recipientID, "--peer", peerID, "--type", "question", "--text", "hello")
 	if err != nil {
 		t.Fatal(err)

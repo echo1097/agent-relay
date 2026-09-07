@@ -56,6 +56,7 @@ func makeDeliveryNode(t *testing.T, address string) *deliveryNode {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults()
+	cfg.Network.Development = true
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +113,9 @@ func trustNode(t *testing.T, source, target *deliveryNode) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source.service.Peers = []config.TrustedPeer{{NodeID: target.node.ID, Address: host, Port: port}}
+	if err := source.store.SetPeerTrust(context.Background(), storage.PeerTrust{NodeID: target.node.ID, Name: "test", State: storage.Trusted, Address: host, Port: port, Development: true}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func waitMessage(t *testing.T, store *storage.Store, id string, status messaging.Status) messaging.Message {
@@ -351,7 +354,9 @@ func TestDaemonExpiresUndeliveredQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nodeA.service.Peers = []config.TrustedPeer{{NodeID: peerID, Address: "127.0.0.1", Port: 1}}
+	if err := nodeA.store.SetPeerTrust(ctx, storage.PeerTrust{NodeID: peerID, Name: "test", State: storage.Trusted, Address: "127.0.0.1", Port: 1, Development: true}); err != nil {
+		t.Fatal(err)
+	}
 	nodeA.start(t)
 	remoteID, err := messaging.NewID("agent")
 	if err != nil {

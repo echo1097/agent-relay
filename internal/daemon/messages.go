@@ -11,6 +11,8 @@ import (
 
 	"agent-relay/internal/messaging"
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/storage"
+	"agent-relay/internal/transport"
 )
 
 func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *http.Request) {
@@ -20,8 +22,20 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 		return
 	}
 	nodeIDs := request.Header.Values(protocol.NodeHeader)
-	if handler.delivery == nil || len(nodeIDs) != 1 || !handler.delivery.Trusted(nodeIDs[0], request.RemoteAddr) {
+	if handler.delivery == nil || len(nodeIDs) != 1 {
 		handler.writeError(writer, 403, protocol.NodeNotTrusted, "The sending node is not trusted.")
+		return
+	}
+	if err := handler.delivery.Authorize(request.Context(), nodeIDs[0], request.RemoteAddr); err != nil {
+		var authorizationError *transport.AuthorizationError
+		switch {
+		case errors.As(err, &authorizationError):
+			handler.writeError(writer, 403, protocol.NodeNotTrusted, authorizationError.Detail)
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			handler.writeError(writer, 504, protocol.RequestTimeout, "Trust verification timed out.")
+		default:
+			handler.writeError(writer, 500, protocol.InternalError, "Trust state is unavailable. Check the local database.")
+		}
 		return
 	}
 	contentType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
@@ -58,10 +72,12 @@ func (handler *httpHandler) receiveMessage(writer http.ResponseWriter, request *
 		handler.writeError(writer, 400, protocol.InvalidRequest, "Use the endpoint matching the message type.")
 		return
 	}
-	saved, _, err := handler.delivery.Store.ReceiveRemote(request.Context(), message.Local(), nodeIDs[0], time.Now().UTC())
+	saved, _, err := handler.delivery.Store.ReceiveAuthorized(request.Context(), message.Local(), nodeIDs[0], time.Now().UTC())
 	if err != nil {
 		status, code, detail := 500, protocol.InternalError, "The message could not be stored."
 		switch {
+		case errors.Is(err, storage.ErrNodeNotTrusted):
+			status, code, detail = 403, protocol.NodeNotTrusted, "Trust was revoked before this message could be stored. Ask the receiving owner to inspect peer trust."
 		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 			status, code, detail = 504, protocol.RequestTimeout, "The request timed out."
 		case errors.Is(err, messaging.ErrNotFound):
