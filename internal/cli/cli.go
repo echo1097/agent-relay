@@ -9,15 +9,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"agent-relay/internal/agents"
 	"agent-relay/internal/config"
 	"agent-relay/internal/daemon"
+	"agent-relay/internal/discovery"
 	"agent-relay/internal/logging"
 	"agent-relay/internal/protocol"
 	"agent-relay/internal/storage"
+	"agent-relay/internal/tailscale"
 )
 
 const usage = `Agent Relay
@@ -27,15 +28,21 @@ Usage: agent-relay <command> [--home PATH]
 Commands:
   daemon    Run the local daemon and presence checks in the foreground
   status    Initialize local storage and show daemon, node, and database status
+  peers     Show cached peer discovery and last-seen state
+  doctor    Check Tailscale and live peer reachability
   agents    List, inspect, register, or update local agents (agents help)
   version   Print the binary version
   help      Show this help
 
-Options for daemon, status, and agent actions:
+Options for daemon, status, peers, doctor, and agent actions:
   --home PATH   Application directory (default: ~/.agent-relay)
 `
 
-func Run(ctx context.Context, args []string, output, errorOutput io.Writer, version string) (returnErr error) {
+func Run(ctx context.Context, args []string, output, errorOutput io.Writer, version string) error {
+	return runWithClient(ctx, args, output, errorOutput, version, tailscale.New())
+}
+
+func runWithClient(ctx context.Context, args []string, output, errorOutput io.Writer, version string, client tailscale.Client) (returnErr error) {
 	if len(args) == 0 {
 		_, err := fmt.Fprint(output, usage)
 		return err
@@ -54,7 +61,7 @@ func Run(ctx context.Context, args []string, output, errorOutput io.Writer, vers
 		}
 		_, err := fmt.Fprintf(output, "agent-relay %s\n", version)
 		return err
-	case "daemon", "status", "agents":
+	case "daemon", "status", "agents", "peers", "doctor":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
@@ -121,7 +128,21 @@ func Run(ctx context.Context, args []string, output, errorOutput io.Writer, vers
 		return err
 	}
 	if command == "daemon" {
-		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Address: net.JoinHostPort(cfg.Network.BindAddress, strconv.Itoa(cfg.Network.Port)), Node: protocol.PublicNode(node.ID, node.Name), Version: version})
+		address, err := listenAddress(ctx, cfg, client)
+		if err != nil {
+			return err
+		}
+		boundIP, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		if cfg.Network.Development {
+			boundIP = ""
+		}
+		manager := discovery.Manager{Client: client, Prober: discovery.NewProber(), Port: cfg.Network.Port, LocalID: node.ID, BoundIP: boundIP, Path: filepath.Join(paths.Home, "peers.json"), Logger: logger}
+		return daemon.Run(ctx, paths.Lock, logger, registry, daemon.HTTPOptions{Address: address, Node: protocol.PublicNode(node.ID, node.Name), Version: version, Background: func(runCtx context.Context) {
+			manager.Run(runCtx, time.Duration(cfg.Discovery.IntervalSeconds)*time.Second)
+		}})
 	}
 	if command == "agents" {
 		return runAgents(ctx, registry, agentFlags, output)
@@ -129,6 +150,16 @@ func Run(ctx context.Context, args []string, output, errorOutput io.Writer, vers
 	running, err := daemon.Running(paths.Lock)
 	if err != nil {
 		return err
+	}
+	if command == "doctor" {
+		return runDoctor(ctx, output, cfg, client, discovery.NewProber(), node.ID, running)
+	}
+	snapshot, err := discovery.Read(filepath.Join(paths.Home, "peers.json"))
+	if err != nil {
+		return fmt.Errorf("read peer cache: %w", err)
+	}
+	if command == "peers" {
+		return showPeers(output, snapshot, running, cfg.Discovery.IntervalSeconds)
 	}
 	daemonState := "Stopped"
 	if running {
@@ -146,5 +177,11 @@ func Run(ctx context.Context, args []string, output, errorOutput io.Writer, vers
 	if err != nil {
 		return err
 	}
-	return listAgents(ctx, registry, output)
+	if err := listAgents(ctx, registry, output); err != nil {
+		return err
+	}
+	if _, err := showTailscale(ctx, output, client); err != nil {
+		return err
+	}
+	return showPeers(output, snapshot, running, cfg.Discovery.IntervalSeconds)
 }

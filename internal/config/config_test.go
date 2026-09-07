@@ -40,12 +40,12 @@ func TestLoad(t *testing.T) {
 }
 
 func TestNetworkConfiguration(t *testing.T) {
-	if Defaults().Network.BindAddress != "127.0.0.1" {
-		t.Fatal("default must be loopback")
+	if Defaults().Network.BindAddress != "tailscale" {
+		t.Fatal("default must be tailscale")
 	}
-	for _, address := range []string{"127.0.0.1", "::1", "0.0.0.0", "100.75.42.18"} {
+	for _, address := range []string{"127.0.0.1", "::1"} {
 		path := filepath.Join(t.TempDir(), "config.toml")
-		if err := os.WriteFile(path, []byte("[network]\nbind_address = '"+address+"'\nport = 47833\n"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte("[network]\ndevelopment = true\nbind_address = '"+address+"'\nport = 47833\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		cfg, err := Load(path)

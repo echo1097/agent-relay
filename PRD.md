@@ -1,5 +1,75 @@
 # Agent Relay V0.1 Product Requirements Document
 
+## Implementation status
+
+Last reviewed: September 6, 2026, against implementation commit `ae0a5f6`.
+
+The repository currently implements the project foundation, local agent registry and presence, and the HTTP protocol foundation. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+
+| Area | Current status |
+| --- | --- |
+| Phase 1: Foundation | Implemented. |
+| Phase 2: Local agent registry | Implemented. Busy and idle are explicitly set by callers; automatic idle detection is not implemented. |
+| Phase 3: Inter-node transport | HTTP foundation implemented. Message serialization and message transport remain deferred. |
+| Phase 4: Tailscale integration | Not implemented. |
+| Phases 5 and 6: Messaging and responses | Not implemented. |
+| Phase 7: Trust | Peer trust management and enforcement are not implemented. |
+| Phase 8: MCP | Not implemented. |
+| Phases 9 and 10: Services and installer | Not implemented. |
+| Phase 11: Hardening | Some foundational validation, timeouts, and shutdown handling exist; the full phase remains pending. |
+
+### Built: project foundation
+
+* Go module and `cmd/agent-relay/main.go`, producing the `agent-relay` binary.
+* CLI commands for help, version, daemon operation, status, and local agents.
+* TOML configuration with defaults, validation, and an optional configuration file.
+* Structured text logging to stderr and the application log file.
+* Application directories under `~/.agent-relay`, with a `--home` override.
+* SQLite initialization with WAL, foreign keys, full synchronization, and a busy timeout.
+* Ordered transactional migrations, failure rollback, and rejection of newer database schemas.
+* Persistent UUIDv7 node identity and a saved node display name.
+* A foreground daemon with per-directory process locking and signal-driven shutdown.
+* Basic local daemon/database status. OS service installation is still pending.
+
+### Built: local agents and presence
+
+* Internal Go APIs for registration, lookup, listing, heartbeat, metadata replacement, status updates, disconnect, and presence expiration.
+* Persistent `agent_` UUIDv7 IDs, node association, display name, provider, registration time, and last-seen time.
+* Local metadata for task, project, repository, branch, cwd, and files.
+* The four states: online, busy, idle, and offline.
+* Each registration without an ID creates a separate session, even when names match. Reconnecting with an existing ID updates that session and preserves its ID and original registration time. Unknown supplied IDs are rejected.
+* Heartbeats preserve active online, busy, or idle status. An offline or timed-out agent returns online when it sends a heartbeat or reconnects.
+* Default offline timeout of 30 seconds. The daemon checks every second; registry reads also expire stale presence. Timeout preserves the actual last-seen time.
+* Immediate offline status on disconnect and offline marking during graceful daemon shutdown.
+* SQLite persistence through migration 2, including an agents table, status constraints, and a presence index.
+* Local CLI actions: `agents list`, `get`, `register`, `heartbeat`, `set-status`, `update-metadata`, and `disconnect`.
+
+Registration and metadata replacement clear omitted metadata fields. Callers must send their own heartbeats; the daemon does not generate heartbeats for inactive agents. Agent commands use SQLite directly and work without a running daemon. See [local agent API behavior](docs/agents.md).
+
+### Built: HTTP protocol foundation
+
+* A daemon HTTP server using Go's standard library.
+* Configurable `network.bind_address` and `network.port`, currently defaulting to `127.0.0.1:47832`.
+* `GET /v1/health` for process liveness, `GET /v1/hello` for public node and version information, and `GET /v1/agents` for local agents only.
+* Protocol version 1 in application response bodies and the `X-Agent-Relay-Protocol-Version` header. The `/v1/` URL supplies the request version; an optional request header is checked for compatibility.
+* Validated public response objects, consistent JSON application errors, and rejection of unsupported methods, request bodies, and query parameters.
+* Separate public agent types containing only ID, display name, provider, status, task, project, repository, and branch. Working directories and file lists are never serialized by HTTP handlers.
+* Conservative filtering of unsafe metadata values and normalization of HTTP(S) repository URLs. Free-form metadata must still be suitable for publication; filtering is not a general detector for every possible secret.
+* Five-second request contexts and header-read timeouts, ten-second read/write timeouts, a thirty-second idle timeout, and a 16 KiB header limit.
+* Graceful HTTP shutdown with up to five seconds for active requests before remaining connections are closed, followed by local presence cleanup.
+
+Loopback binding is an interim development default. Tailscale-only production binding, peer authentication, and trust enforcement remain requirements for later phases. No agent mutation endpoint, outgoing peer transport, discovery, conversation, message, or MCP implementation exists yet. See [HTTP protocol behavior and examples](docs/protocol.md).
+
+### Current schema and verification
+
+Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 2 creates `agents`. The migration runner records applied versions in `schema_migrations`. Conversation, message, and processed-message tables described later in this PRD are not implemented yet.
+
+The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Manual CLI and curl checks also passed, and test daemons were stopped afterward.
+
+The two-node agent messaging test in section 56 has not been implemented or passed. The project is not yet a complete V0.1 release.
+
+---
+
 ## 1. Product Overview
 
 ### Product name
@@ -358,6 +428,8 @@ Agent Relay requires:
 Agent Relay should detect these conditions automatically.
 
 ## 8.2 Listening interface
+
+Current implementation: the HTTP foundation defaults to loopback (`127.0.0.1`) and accepts a configured IP address. The Tailscale-only production behavior below is pending Phase 4.
 
 The daemon should listen only on the machine's Tailscale network interface.
 
@@ -1350,6 +1422,8 @@ Agent messages should contain only text explicitly sent by the agent.
 
 # 36. SQLite Schema
 
+Current implementation: only node identity and agent persistence are present, through migrations 1 and 2. The conversation and messaging tables below remain planned. See the implementation status section and [migration definitions](migrations/migrations.go).
+
 A reasonable initial schema:
 
 ```sql
@@ -1763,6 +1837,8 @@ or user-local equivalent.
 ---
 
 # 47. Configuration
+
+Current implementation also supports `network.bind_address`, defaulting to `127.0.0.1` while Tailscale integration is pending. The configuration file is optional. Network discovery and messaging settings are validated but do not activate features that have not been built.
 
 Example:
 
@@ -2239,6 +2315,8 @@ Codex should implement the project in this order.
 
 ## Phase 1: Foundation
 
+Status: implemented. See the implementation status section for delivered behavior and verification.
+
 Build:
 
 ```text
@@ -2254,6 +2332,8 @@ Do not implement MCP yet.
 
 ## Phase 2: Local agent registry
 
+Status: implemented through internal Go APIs, SQLite persistence, and local CLI commands. Automatic idle detection remains deferred; idle is currently caller-controlled.
+
 Build:
 
 ```text
@@ -2266,6 +2346,8 @@ agent listing
 Test locally.
 
 ## Phase 3: Inter-node transport
+
+Status: HTTP server, hello, health, agent listing, protocol versioning, and localhost integration tests are implemented. Message serialization is intentionally deferred with messaging. This phase does not yet provide agent-to-agent communication.
 
 Build:
 
@@ -2280,6 +2362,8 @@ message serialization
 Test two daemon instances locally.
 
 ## Phase 4: Tailscale integration
+
+Status: not started. This is the next planned implementation phase.
 
 Build:
 

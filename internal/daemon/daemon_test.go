@@ -36,7 +36,8 @@ func TestLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	options := HTTPOptions{Address: "127.0.0.1:0", Node: protocol.PublicNode(node.ID, node.Name), Version: "test"}
+	backgroundStopped := make(chan struct{})
+	options := HTTPOptions{Address: "127.0.0.1:0", Node: protocol.PublicNode(node.ID, node.Name), Version: "test", Background: func(runCtx context.Context) { <-runCtx.Done(); close(backgroundStopped) }}
 	go func() { done <- Run(ctx, path, logger, registry, options) }()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
@@ -63,6 +64,11 @@ func TestLifecycle(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("daemon did not stop")
+	}
+	select {
+	case <-backgroundStopped:
+	default:
+		t.Fatal("daemon returned before background loop stopped")
 	}
 	running, err := Running(path)
 	if err != nil || running {

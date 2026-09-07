@@ -74,6 +74,15 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 		returnErr = errors.Join(returnErr, registry.OfflineAll(shutdownCtx), file.Close())
 		logger.Info("daemon stopped")
 	}()
+	backgroundCtx, stopBackground := context.WithCancel(ctx)
+	backgroundDone := make(chan struct{})
+	go func() {
+		defer close(backgroundDone)
+		if options.Background != nil {
+			options.Background(backgroundCtx)
+		}
+	}()
+	defer func() { stopBackground(); <-backgroundDone }()
 	logger.Info("daemon started", "pid", os.Getpid(), "address", listener.Addr().String())
 	if options.Ready != nil {
 		options.Ready(listener.Addr())

@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	Network struct {
+		Development bool   `toml:"development"`
 		Port        int    `toml:"port"`
 		BindAddress string `toml:"bind_address"`
 	} `toml:"network"`
@@ -67,7 +68,7 @@ func (paths Paths) Ensure() error {
 func Defaults() Config {
 	var cfg Config
 	cfg.Network.Port = 47832
-	cfg.Network.BindAddress = "127.0.0.1"
+	cfg.Network.BindAddress = "tailscale"
 	cfg.Discovery.IntervalSeconds = 15
 	cfg.Presence.HeartbeatSeconds = 10
 	cfg.Presence.OfflineAfterSeconds = 30
@@ -100,8 +101,13 @@ func Load(path string) (Config, error) {
 }
 
 func (cfg Config) Validate() error {
-	if _, err := netip.ParseAddr(cfg.Network.BindAddress); err != nil {
-		return errors.New("network.bind_address must be a literal IPv4 or IPv6 address")
+	if cfg.Network.Development {
+		address, err := netip.ParseAddr(cfg.Network.BindAddress)
+		if err != nil || !address.IsLoopback() {
+			return errors.New("development mode requires a loopback bind_address")
+		}
+	} else if cfg.Network.BindAddress != "tailscale" {
+		return errors.New("production network.bind_address must be tailscale")
 	}
 	if cfg.Network.Port < 1 || cfg.Network.Port > 65535 {
 		return errors.New("network.port must be between 1 and 65535")
@@ -111,6 +117,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.Presence.OfflineAfterSeconds <= cfg.Presence.HeartbeatSeconds {
 		return errors.New("presence.offline_after_seconds must exceed heartbeat_seconds")
+	}
+	if int64(cfg.Discovery.IntervalSeconds) > int64((1<<63-1)/time.Second) {
+		return errors.New("discovery.interval_seconds is too large")
 	}
 	if int64(cfg.Presence.OfflineAfterSeconds) > int64((1<<63-1)/time.Second) {
 		return errors.New("presence.offline_after_seconds is too large")

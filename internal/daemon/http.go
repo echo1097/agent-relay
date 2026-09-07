@@ -17,10 +17,11 @@ import (
 )
 
 type HTTPOptions struct {
-	Address string
-	Node    protocol.Node
-	Version string
-	Ready   func(net.Addr)
+	Background func(context.Context)
+	Address    string
+	Node       protocol.Node
+	Version    string
+	Ready      func(net.Addr)
 }
 
 type agentLister interface {

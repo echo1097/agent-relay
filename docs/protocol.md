@@ -1,6 +1,6 @@
 # HTTP protocol foundation
 
-The daemon serves HTTP and JSON using the Go standard library. This phase has no Tailscale integration, discovery, trust enforcement, messaging, conversations, or MCP.
+The daemon serves HTTP and JSON using the Go standard library. Tailscale discovery is supported. Trust enforcement, messaging, conversations, and MCP remain pending.
 
 ## Listener
 
@@ -8,11 +8,12 @@ The default is `127.0.0.1:47832`. Configure a literal IPv4 or IPv6 address and p
 
 ```toml
 [network]
+development = true
 bind_address = "127.0.0.1"
 port = 47833
 ```
 
-The address is an IP address, not an interface name or hostname. An unspecified or wildcard address is never chosen by default. An explicit `0.0.0.0` or `::` setting binds all applicable interfaces. This phase does not restrict an explicitly configured address to Tailscale. Restart the daemon to apply configuration or binary changes.
+The example explicitly enables loopback development mode. Production defaults to `bind_address = "tailscale"`, resolves the connected local Tailscale IPv4 address, and binds only to that address. Wildcard and other interface addresses are rejected. Restart the daemon to apply configuration or binary changes.
 
 ## Versioning and endpoints
 
@@ -82,6 +83,7 @@ Build the executable, then use a temporary application directory:
 relayHome=$(mktemp -d)
 cat > "$relayHome/config.toml" <<'TOML'
 [network]
+development = true
 bind_address = "127.0.0.1"
 port = 47833
 TOML
