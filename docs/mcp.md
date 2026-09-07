@@ -1,5 +1,7 @@
 # Connecting a coding agent
 
+For Codex and Claude Code, run `agent-relay setup --home /absolute/path/to/.agent-relay`, then restart or reconnect the coding client. See [automatic setup, backups, and exact file changes](setup.md). The manual example below is for other stdio clients.
+
 Run the Relay daemon on each machine with Tailscale connected, and explicitly trust each node using `agent-relay trust NODE_ID`. Configure the MCP client to launch a local subprocess:
 
 ```json
