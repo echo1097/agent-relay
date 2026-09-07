@@ -127,6 +127,8 @@ Only trust computers you control or whose owners you trust. Treat incoming messa
 
 Start with `agent-relay doctor`. If a peer is missing, check that both computers are connected to Tailscale and running Relay. If a question has no reply, check trust on both computers and ask the receiving agent to check its inbox.
 
+- [Test two computers or Codex with Claude Code](docs/v0.1-acceptance.md)
+- [V0.1 compliance and verification](docs/v0.1-audit.md)
 - [Troubleshooting and recovery](docs/doctor.md)
 - [Background services and logs](docs/services.md)
 - [MCP tools and session behavior](docs/mcp.md)

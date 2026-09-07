@@ -2,9 +2,9 @@
 
 ## Implementation status
 
-Last reviewed: September 6, 2026, including persistent trust, authorization enforcement, and successful MCP machine A/B testing over Tailscale.
+Last reviewed: September 7, 2026. See the [full V0.1 audit](docs/v0.1-audit.md) for requirement coverage, fixes, verification and release gates.
 
-The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, bidirectional peer message delivery with responses and retries, the V0.1 trust model, and stdio MCP tools with automatic session registration. The full V0.1 product and its end-to-end acceptance criteria are not complete. Requirements below remain the target unless explicitly identified as current implementation behavior.
+The repository currently implements the project foundation, local agent registry and presence, the HTTP protocol foundation, Tailscale integration with peer discovery, local conversation and messaging persistence, bidirectional peer message delivery with responses and retries, the V0.1 trust model, and stdio MCP tools with automatic session registration. The repository implements the V0.1 communication requirements. Final real-client acceptance with Codex and Claude reasoning from their own sessions remains unverified; scripted MCP tests do not prove that step. Requirements below remain the target unless explicitly identified as current implementation behavior.
 
 | Area | Current status |
 | --- | --- |
@@ -74,7 +74,7 @@ Tailscale-only production binding and outgoing hello probes are implemented. Mes
 * `peers` reads cached discovery state. `status` includes current local Tailscale information and cached peers. `doctor` checks Tailscale, probes the local listener and remote candidates, and provides remediation hints with a failing exit status when required checks fail.
 * Discovery cancellation and worker completion are awaited during daemon shutdown.
 
-All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation is available through the shared MCP directory; message transport uses explicit SQLite trust with stable Tailscale device bindings. See [Tailscale and peer discovery](README.md#tailscale-and-peer-discovery).
+All nodes must use the same configured port for automatic discovery. Large tailnets may exceed a discovery round's budget; scheduling improvements and cache pruning remain future work. Remote agent aggregation is available through the shared MCP directory; message transport uses explicit SQLite trust with stable Tailscale device bindings. See [Tailscale and peer discovery](docs/protocol.md).
 
 ### Built: local conversations and durable inboxes
 
@@ -114,7 +114,7 @@ Migration 1 creates `nodes` and the singleton `local_node` reference. Migration 
 
 The implementation has passed `go fmt ./...`, `go vet ./...`, `go test ./...`, `go build ./...`, and `go test -race ./...`. Tests cover foundation persistence and migration behavior, registration and updates, heartbeat and timeout boundaries, restart persistence, localhost HTTP endpoints, public metadata filtering, protocol errors, request deadlines, and graceful shutdown. Earlier HTTP-foundation manual CLI and curl checks passed, and test daemons were stopped afterward. Tailscale tests use fakes and local HTTP servers without requiring a real tailnet. They cover detection, production binding restrictions, malformed and oversized hello responses, version mismatches, redirects, timeouts, cache transitions and restart persistence, periodic refresh, diagnostics, and shutdown. Live discovery between machine A and machine B passed during the trust verification, including doctor checks.
 
-The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The section 56 end-to-end conversation test passes using internal service calls and real HTTP between two localhost daemons, with a fake tailnet for discovery. It verifies agent listing, both question/answer rounds, response mapping, answered timestamps, conversation update time, duplicate handling, and four ordered messages after reopening both databases. That original test uses internal APIs; the additional MCP end-to-end test drives discovery and both answer rounds through MCP tools. A real two-process CLI exchange also passed; see [the complete manual procedure](docs/conversation-test.md). The project is not yet a complete V0.1 release.
+The two-daemon regular-message/question delivery tests pass on localhost, including lost acknowledgments, duplicate delivery, restart recovery, and expiration. The section 56 end-to-end conversation test passes using internal service calls and real HTTP between two localhost daemons, with a fake tailnet for discovery. It verifies agent listing, both question/answer rounds, response mapping, answered timestamps, conversation update time, duplicate handling, and four ordered messages after reopening both databases. That original test uses internal APIs; the additional MCP end-to-end test drives discovery and both answer rounds through MCP tools. A real two-process CLI exchange also passed; see [the complete manual procedure](docs/conversation-test.md). The audited changes must be included in a new compiled release, and the real Codex/Claude acceptance scenario must be completed before an unconditional V0.1 release sign-off.
 
 ---
 
@@ -717,7 +717,7 @@ Presence is ephemeral.
 
 # 14. Peer Discovery
 
-Current implementation: the IPv4 discovery strategy below is built, including compatible hello validation, a persistent local cache, periodic refresh, last-seen state, and failure handling. Real-tailnet verification remains outstanding.
+Current implementation: the IPv4 discovery strategy below is built, including compatible hello validation, a persistent local cache, periodic refresh, last-seen state, and failure handling. Real-tailnet discovery and the four-message MCP conversation have passed on two Macs; see the audit for current evidence and limitations.
 
 Agent Relay should automatically discover other Agent Relay nodes on the tailnet.
 

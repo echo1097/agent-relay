@@ -1,5 +1,7 @@
 # Test a complete conversation
 
+For compiled-binary installation and exact two-computer CLI or Codex-to-Claude steps, use the [V0.1 acceptance guide](v0.1-acceptance.md). This older procedure is intended for source builds and isolated developer testing.
+
 Current trust setup: start both daemons, then run `agent-relay trust PEER_NODE_ID --home "$relayHome"` on each machine before following the message steps. Legacy configuration supplies routes only. See [trust setup](trust.md).
 
 This procedure uses the actual CLI and daemon. No MCP or model provider is involved. Run the steps in order, alternating between A and B. Both agents are registered local sessions; you supply their example answers through the CLI.
@@ -316,4 +318,4 @@ go test ./internal/daemon -run '^TestAgentRelayEndToEndConversation$' -count=1 -
 
 The required PRD section 56 test is `TestAgentRelayEndToEndConversation` in `internal/daemon/conversation_test.go`. It exercises discovery, HTTP agent listing, the two question/answer rounds, response links, answered state and timestamps, conversation update time, idempotent response retries, and the four ordered messages on both nodes after reopening SQLite. Separate tests cover invalid originals, membership violations, duplicate answers, CLI routing, and response redelivery after a lost acknowledgment and database restart.
 
-The full validation suite and a real two-process localhost CLI exchange passed on September 6, 2026. Both manual test daemons were stopped. Live two-machine Tailscale verification still needs to be run on your machines. MCP remains unimplemented.
+The full validation suite and a real two-process localhost CLI exchange passed on September 6, 2026. Both manual test daemons were stopped. MCP is implemented and the real two-Mac Tailscale exchange has passed with scripted clients. See the [current audit](v0.1-audit.md) for evidence and the remaining live-model acceptance gate.
