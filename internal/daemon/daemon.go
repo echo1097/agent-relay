@@ -59,6 +59,9 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 	if err != nil {
 		return errors.Join(err, file.Close())
 	}
+	if err := writeRuntime(file, Runtime{Address: listener.Addr().String(), NodeID: options.Node.ID, Version: options.Version}); err != nil {
+		return errors.Join(err, listener.Close(), file.Close())
+	}
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- server.Serve(listener) }()
 	defer func() {

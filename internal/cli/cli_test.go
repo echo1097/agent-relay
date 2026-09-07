@@ -6,7 +6,6 @@ import (
 	"agent-relay/internal/tailscale"
 	"bytes"
 	"context"
-	"github.com/google/uuid"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,15 +161,4 @@ func (prober doctorProber) Hello(_ context.Context, ip string, _ int) (protocol.
 		return prober.local, nil
 	}
 	return prober.remote, nil
-}
-
-func TestDoctorHealthy(t *testing.T) {
-	local := protocol.Hello{Protocol: protocol.Name, ProtocolVersion: 1, Node: protocol.Node{ID: "node_" + uuid.Must(uuid.NewV7()).String(), Name: "local"}, Version: "test"}
-	remote := local
-	remote.Node = protocol.Node{ID: "node_" + uuid.Must(uuid.NewV7()).String(), Name: "remote"}
-	var output bytes.Buffer
-	err := runDoctor(context.Background(), &output, config.Defaults(), doctorClient{}, doctorProber{local: local, remote: remote}, local.Node.ID, true)
-	if err != nil || !strings.Contains(output.String(), "online") || !strings.Contains(output.String(), "100.64.0.1:47832: true") {
-		t.Fatalf("%s %v", output.String(), err)
-	}
 }

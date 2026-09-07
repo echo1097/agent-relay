@@ -140,6 +140,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if err != nil {
 		return err
 	}
+	if command == "doctor" {
+		return runDiagnostics(ctx, output, paths, version, client)
+	}
 	cfg, err := config.Load(paths.Config)
 	if err != nil {
 		return err
@@ -253,16 +256,6 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	running, err := daemon.Running(paths.Lock)
 	if err != nil {
 		return err
-	}
-	if command == "doctor" {
-		snapshot, err := discovery.Read(filepath.Join(paths.Home, "peers.json"))
-		if err != nil {
-			return err
-		}
-		if err := showTrust(ctx, output, store, snapshot); err != nil {
-			return err
-		}
-		return runDoctor(ctx, output, cfg, client, discovery.NewProber(), node.ID, running)
 	}
 	snapshot, err := discovery.Read(filepath.Join(paths.Home, "peers.json"))
 	if err != nil {
