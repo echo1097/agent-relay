@@ -32,4 +32,6 @@ Other local sessions and their histories remain intact. Remote computers keep th
 
 A deleted session cannot be resumed with its old ID, and later deliveries addressed to it are rejected. Reconnect without `--agent-id` to create a new session and inbox. Deletion has no built-in undo. A failed cleanup transaction rolls back the session and all its history together.
 
+An outgoing request already in flight when cleanup runs may still reach the remote computer. Its completion does not recreate local history or produce a local delivered event for the deleted record. Pending items removed before sending are skipped.
+
 Installing the updated executable still requires updating and restarting the backend service, and reconnecting MCP clients. See [development and service update instructions](development.md).

@@ -140,3 +140,19 @@ func TestQueuedResponseIsAtomicAndExpires(t *testing.T) {
 		t.Fatalf("response deadline: %+v %v", saved, err)
 	}
 }
+
+func TestFinishDeliveryReportsMissingOutbox(t *testing.T) {
+	store, conversation, now, _ := messageFixture(t)
+	ctx := context.Background()
+	message := messaging.Message{ID: "outgoing", ConversationID: conversation.ID, SenderAgentID: conversation.LocalAgentID, RecipientAgentID: conversation.RemoteAgentID, Type: messaging.MessageType, Text: "hello", CreatedAt: now}
+	if _, _, err := store.SaveMessage(ctx, message, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishDelivery(ctx, message.ID, messaging.Delivered, now, now, ""); !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("missing outbox: %v", err)
+	}
+	saved, err := store.GetMessage(ctx, message.ID)
+	if err != nil || saved.Status != messaging.Created {
+		t.Fatalf("message changed after missing outbox: %+v %v", saved, err)
+	}
+}
