@@ -116,5 +116,9 @@ CREATE TABLE local_settings (
  dnd INTEGER NOT NULL DEFAULT 0 CHECK (dnd IN (0, 1))
 );
 INSERT INTO local_settings (id) VALUES (1);
+`}, {Version: 7, SQL: `
+ALTER TABLE agents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1));
+ALTER TABLE local_settings ADD COLUMN archive_after_days INTEGER NOT NULL DEFAULT 7 CHECK (archive_after_days > 0);
+ALTER TABLE local_settings ADD COLUMN delete_after_days INTEGER NOT NULL DEFAULT 30 CHECK (delete_after_days > archive_after_days AND delete_after_days <= 106751);
 `}}
 }

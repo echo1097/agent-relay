@@ -121,6 +121,7 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	var lastRetentionCheck time.Time
 	for {
 		if options.Delivery != nil {
 			if err := options.Delivery.Store.ExpireDeliveries(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
@@ -129,6 +130,12 @@ func Run(ctx context.Context, path string, logger *slog.Logger, registry *agents
 		}
 		if _, err := registry.Expire(ctx); err != nil && ctx.Err() == nil {
 			return err
+		}
+		if time.Since(lastRetentionCheck) >= time.Minute {
+			if _, err := registry.Retain(ctx); err != nil && ctx.Err() == nil {
+				return err
+			}
+			lastRetentionCheck = time.Now()
 		}
 		select {
 		case <-ctx.Done():

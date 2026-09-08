@@ -293,7 +293,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		if agentFlags.action == "list" && !agentFlags.local {
 			return showAgentDirectory(ctx, directory, false, output)
 		}
-		return runAgents(ctx, registry, agentFlags, output)
+		return runAgents(ctx, store, registry, agentFlags, output)
 	}
 	running, err := daemon.Running(paths.Lock)
 	if err != nil {

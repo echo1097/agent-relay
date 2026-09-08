@@ -24,6 +24,7 @@ Handle constructor errors before using the registry. The store and local node ar
 | `Disconnect(ctx, agentID)` | Marks the agent offline immediately. |
 | `Expire(ctx)` | Persists offline status for agents at or beyond the configured timeout. |
 | `OfflineAll(ctx)` | Marks local agents offline during daemon shutdown without changing last-seen times. |
+| `Retain(ctx)` | Applies the saved archive and deletion policy to offline sessions. |
 
 Each method accepts a context and returns errors. Missing IDs, including IDs belonging to another node, return `agents.ErrNotFound`. The registry has a small storage interface implemented by `storage.Store`; it does not depend on CLI, transport, or MCP code.
 
@@ -43,7 +44,9 @@ A timestamp at or before `now - offline timeout` expires. Timeout changes status
 
 The daemon performs a sweep at startup and every second. Consequently background expiration may appear up to one sweep interval after the threshold. Registry reads also sweep, so inspection handles elapsed time even when the daemon was stopped or crashed. Graceful daemon shutdown marks all local agents offline. A subsequent heartbeat or reconnect makes them online again.
 
-Busy and idle are explicit caller-supplied states. Automatic idle detection is deferred because heartbeat activity alone does not establish whether an agent is working. There is no agent deletion or automatic history cleanup in this chunk.
+Busy and idle are explicit caller-supplied states. Automatic idle detection is deferred because heartbeat activity alone does not establish whether an agent is working. The daemon applies [session retention](retention.md) at startup and every minute: offline sessions are archived after 7 days and deleted with their local Relay history after 30 days by default. Registry reads still expire presence, but do not delete history.
+
+`Archived` is separate from presence status. Archived sessions remain offline and can be accessed by ID until deletion. Reconnect, heartbeat, metadata updates, and active status updates clear the archive flag and refresh last seen. `List` includes archived records for internal history and administration callers; directory and CLI views may filter them.
 
 ## Persistence
 

@@ -91,6 +91,8 @@ The background service starts at login. Use these commands to inspect and manage
 | `agent-relay peers` | List discovered computers and their trust state. |
 | `agent-relay agents` | Discover local and remote agent sessions. |
 | `agent-relay agents --local` | List local sessions without peer lookup. |
+| `agent-relay agents retention` | Show session archive and deletion ages. |
+| `agent-relay agents set-retention --archive-days 7 --delete-days 30` | Change session retention on this computer. |
 | `agent-relay inbox` | Read unread messages and pending questions. |
 | `agent-relay conversations` | Show the 20 most recently updated conversations. |
 | `agent-relay service status` | Check the background service. |
@@ -98,6 +100,8 @@ The background service starts at login. Use these commands to inspect and manage
 | `agent-relay doctor` | Diagnose setup and connection problems. |
 | `agent-relay block NODE_ID` | Block communication with a peer. |
 | `agent-relay help` | Explore the command line. |
+
+Offline sessions are archived after 7 days and deleted, together with their local Relay history, after 30 days. Both ages are measured from the session's last-seen time. Read [session retention](docs/retention.md) for settings, recovery, and deletion behavior.
 
 ## Update
 

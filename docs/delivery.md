@@ -52,7 +52,7 @@ Connection failures, request timeouts, HTTP 408/429/5xx, truncated responses, an
 
 The outbox persists attempts, next attempt time, deadline, and a generic failure reason. Restart resumes due work, including an interrupted `sending` attempt. Lost acknowledgments can cause redelivery, but cannot duplicate inbox entries. Successful acknowledgments set `delivered` and record the sender's delivery timestamp.
 
-Questions expire at their original deadline, including while waiting for delivery. The daemon sweeps once a second and CLI reads sweep before returning. Ordinary messages and responses retain the existing message lifecycle: their outbox deadline uses the configured request lifetime, and undelivered ordinary messages and responses become `failed` when that deadline passes. Delivered ordinary messages and responses remain delivered. Expiration preserves history and never deletes messages.
+Questions expire at their original deadline, including while waiting for delivery. The daemon sweeps once a second and CLI reads sweep before returning. Ordinary messages and responses retain the existing message lifecycle: their outbox deadline uses the configured request lifetime, and undelivered ordinary messages and responses become `failed` when that deadline passes. Delivered ordinary messages and responses remain delivered. Message expiration preserves history. Separately, [session retention](retention.md) deletes a local session and its history when it has been offline for the configured deletion age.
 
 ## Responses and follow-ups
 

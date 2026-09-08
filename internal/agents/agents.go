@@ -36,6 +36,7 @@ type Agent struct {
 	DisplayName string `json:"display_name"`
 	Provider    string `json:"provider"`
 	Status      Status `json:"status"`
+	Archived    bool   `json:"archived"`
 	Metadata
 	RegisteredAt time.Time `json:"registered_at"`
 	LastSeenAt   time.Time `json:"last_seen_at"`
@@ -55,6 +56,7 @@ type Store interface {
 	UpdateAgent(context.Context, string, string, *Status, *Metadata, time.Time) (Agent, error)
 	ExpireAgents(context.Context, string, time.Time) (int64, error)
 	OfflineAgents(context.Context, string) (int64, error)
+	RetainAgents(context.Context, string, time.Time) (RetentionResult, error)
 }
 
 type Options struct {

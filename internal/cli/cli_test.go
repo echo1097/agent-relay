@@ -4,10 +4,12 @@ import (
 	"agent-relay/internal/config"
 	"agent-relay/internal/protocol"
 	"agent-relay/internal/tailscale"
+	"agent-relay/migrations"
 	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -30,7 +32,7 @@ func TestCommands(t *testing.T) {
 	if err := runWithClient(context.Background(), []string{"status", "--home", home}, &output, &output, "test-version", testClient{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Stopped", "node_", "Schema version: 6", "test-version"} {
+	for _, expected := range []string{"Stopped", "node_", "Schema version: " + strconv.Itoa(len(migrations.All())), "test-version"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %q in %s", expected, output.String())
 		}
@@ -90,6 +92,39 @@ func TestAgentCommands(t *testing.T) {
 		if _, err := run(args...); err == nil {
 			t.Fatalf("accepted invalid args: %v", args)
 		}
+	}
+}
+
+func TestAgentRetentionCommands(t *testing.T) {
+	home := t.TempDir()
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var output, errorOutput bytes.Buffer
+		commandArgs := append([]string{"agents"}, args...)
+		commandArgs = append(commandArgs, "--home", home)
+		err := Run(context.Background(), commandArgs, &output, &errorOutput, "test")
+		return output.String(), err
+	}
+	output, err := run("retention")
+	if err != nil || !strings.Contains(output, "Archive after: 7 days") || !strings.Contains(output, "Delete after: 30 days") {
+		t.Fatalf("default retention: %q, %v", output, err)
+	}
+	output, err = run("set-retention", "--archive-days", "3")
+	if err != nil || !strings.Contains(output, "Archive after: 3 days") || !strings.Contains(output, "Delete after: 30 days") {
+		t.Fatalf("archive update: %q, %v", output, err)
+	}
+	output, err = run("set-retention", "--delete-days", "10")
+	if err != nil || !strings.Contains(output, "Archive after: 3 days") || !strings.Contains(output, "Delete after: 10 days") {
+		t.Fatalf("delete update: %q, %v", output, err)
+	}
+	if _, err := run("set-retention", "--archive-days", "10", "--delete-days", "10"); err == nil {
+		t.Fatal("accepted invalid retention policy")
+	}
+	if _, err := run("set-retention"); err == nil {
+		t.Fatal("accepted retention update without fields")
+	}
+	if _, err := run("set-retention", "--archive-days", "seven"); err == nil {
+		t.Fatal("accepted malformed archive days")
 	}
 }
 
