@@ -9,6 +9,13 @@ fail() {
 cleanup() {
     exitCode=$?
     trap - 0
+    if [ -n "$downloadPid" ]; then kill "$downloadPid" 2>/dev/null || :; fi
+    if [ -n "$progressPid" ]; then kill "$progressPid" 2>/dev/null || :; fi
+    if [ -n "$downloadPid" ]; then wait "$downloadPid" 2>/dev/null || :; fi
+    if [ -n "$progressPid" ]; then
+        wait "$progressPid" 2>/dev/null || :
+        printf '\n' >&2
+    fi
     if [ -n "$tempDir" ]; then rm -rf "$tempDir"; fi
     if [ -n "$lockDir" ]; then rmdir "$lockDir" 2>/dev/null || :; fi
     if [ "$exitCode" -ne 0 ]; then
@@ -64,16 +71,100 @@ checkPath() {
     done
 }
 
+downloadProgress() {
+    LC_ALL=C exec awk '
+        function showProgress(text) {
+            printf "\r%s", text
+            if (previousWidth > length(text)) printf "%*s", previousWidth - length(text), ""
+            previousWidth = length(text)
+            progressVisible = 1
+            fflush()
+        }
+
+        function formatSize(value, unitIndex) {
+            unitIndex = index("kMGTPE", substr(value, length(value), 1))
+            if (unitIndex > 0) return substr(value, 1, length(value) - 1) " " units[unitIndex]
+            return value " B"
+        }
+
+        BEGIN {
+            RS = "\r"
+            split("KiB MiB GiB TiB PiB EiB", units, " ")
+            showProgress("  [----------------] Connecting...")
+        }
+
+        {
+            lineCount = split($0, lines, "\n")
+            for (lineIndex = 1; lineIndex <= lineCount; lineIndex++) {
+                line = lines[lineIndex]
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+                if (line == "" || line ~ /^% Total/ || line ~ /^Dload[[:space:]]+Upload/) continue
+                fieldCount = split(line, fields, /[[:space:]]+/)
+                if (fieldCount == 12 && fields[1] ~ /^[0-9]+$/ && fields[3] ~ /^[0-9]+$/) {
+                    percent = fields[3] + 0
+                    filled = int(percent * 16 / 100)
+                    bar = ""
+                    for (indexValue = 0; indexValue < 16; indexValue++) bar = bar (indexValue < filled ? "=" : "-")
+                    eta = fields[11] == "--:--:--" ? "--" : fields[11]
+                    if (percent == 100) eta = "0:00:00"
+                    if (fields[2] == "0") {
+                        showProgress("  [----------------] " formatSize(fields[4]) " / ?  ETA --")
+                    } else {
+                        showProgress(sprintf("  [%s] %3d%%  %s / %s  ETA %s", bar, percent, formatSize(fields[4]), formatSize(fields[2]), eta))
+                    }
+                } else {
+                    if (progressVisible) printf "\n"
+                    progressVisible = 0
+                    previousWidth = 0
+                    print line
+                    fflush()
+                }
+            }
+        }
+
+        END { if (progressVisible) printf "\n" }
+    '
+}
+
 download() {
-    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-        --connect-timeout 15 --max-time 300 --retry 2 --output "$2" "$1" ||
-        fail "Download failed: $1. Check connectivity and that the release is public and complete."
+    downloadUrl=$1
+    downloadPath=$2
+    downloadDisplay=${3:-quiet}
+    set -- --fail --show-error --location --proto '=https' --proto-redir '=https' \
+        --connect-timeout 15 --max-time 300 --retry 2 --output "$downloadPath" "$downloadUrl"
+    if [ "$downloadDisplay" = progress ] && [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
+        mkfifo "$tempDir/download-progress"
+        downloadProgress < "$tempDir/download-progress" >&2 &
+        progressPid=$!
+        LC_ALL=C curl --no-silent --no-progress-bar "$@" 2> "$tempDir/download-progress" &
+        downloadPid=$!
+        downloadCode=0
+        wait "$downloadPid" || downloadCode=$?
+        downloadPid=''
+        progressCode=0
+        wait "$progressPid" || progressCode=$?
+        progressPid=''
+        rm "$tempDir/download-progress"
+        [ "$progressCode" = 0 ] || fail 'Could not display download progress.'
+        [ "$downloadCode" = 0 ] ||
+            fail "Download failed: $downloadUrl. Check connectivity and that the release is public and complete."
+    else
+        curl --silent "$@" &
+        downloadPid=$!
+        downloadCode=0
+        wait "$downloadPid" || downloadCode=$?
+        downloadPid=''
+        [ "$downloadCode" = 0 ] ||
+            fail "Download failed: $downloadUrl. Check connectivity and that the release is public and complete."
+    fi
 }
 
 main() {
     setupColors
     tempDir=''
     lockDir=''
+    downloadPid=''
+    progressPid=''
     installStep='preflight'
     trap cleanup 0
     trap 'exit 130' INT
@@ -92,7 +183,7 @@ main() {
     [ -n "${HOME:-}" ] || fail 'HOME is not set.'
     PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     export PATH
-    for toolName in curl awk uname mktemp chmod mkdir mv ln rm rmdir dirname sed cmp grep cat; do
+    for toolName in curl awk uname mktemp mkfifo chmod mkdir mv ln rm rmdir dirname sed cmp grep cat; do
         command -v "$toolName" >/dev/null 2>&1 || fail "Required Unix tool is missing: $toolName"
     done
     command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || fail 'Install sha256sum or shasum to verify downloads.'
@@ -158,7 +249,7 @@ main() {
     releaseBase="https://github.com/echo1097/agent-relay/releases/download/$releaseVersion"
     printf '\n%sAgent Relay %s%s\n' "$cyan" "$releaseVersion" "$reset"
     printf '  Downloading for %s %s...\n' "$osName" "$cpuArch"
-    download "$releaseBase/$assetName" "$tempDir/agent-relay"
+    download "$releaseBase/$assetName" "$tempDir/agent-relay" progress
     download "$releaseBase/SHA256SUMS" "$tempDir/SHA256SUMS"
     expectedHash=$(awk -v assetName="$assetName" '$2 == assetName { count++; value=$1 } END { if (count != 1 || length(value) != 64 || value ~ /[^0-9a-f]/) exit 1; print value }' "$tempDir/SHA256SUMS") || fail 'The checksum manifest has no unique valid entry for this binary.'
     actualHash=$(hashFile "$tempDir/agent-relay")

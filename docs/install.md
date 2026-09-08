@@ -64,7 +64,7 @@ See [installer verification](installer-verification.md) for automated coverage, 
 
 ### Installer output and pairing
 
-Installation shows short progress lines and prints detailed command output only when a step fails. Terminal output uses color unless `NO_COLOR` is set; redirected output stays plain. Run `agent-relay doctor` for the full diagnostic report.
+Installation shows short progress lines and prints detailed command output only when a step fails. The binary download shows one updating bar with percentage, downloaded/total size, and ETA when stderr is a terminal. Unknown totals display `?` and an unavailable ETA displays `--`. Checksum downloads stay quiet, and redirected output has no animation. Terminal output uses color unless `NO_COLOR` is set. Run `agent-relay doctor` for the full diagnostic report.
 
 The final lines show this computer's node ID. Verified tailnet devices pair automatically; explicitly blocked nodes stay blocked. Retrieve your ID anytime with `agent-relay nodeid`, or `agent-relay nodeid --home /absolute/path` for a custom data directory. This command prints only the persistent ID and initializes local storage if needed, without requiring a running daemon or Tailscale connection.
 
