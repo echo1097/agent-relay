@@ -27,7 +27,7 @@ Only these GET endpoints exist:
 | `/v1/hello` | Protocol name/version, public node ID/name, and binary version. |
 | `/v1/agents` | Protocol version and an `agents` array containing agents from the current node only. |
 
-An empty registry produces `agents: []`. Offline agents remain listed with their current status. Agent listing applies the registry's presence expiration rules. GET requests do not accept bodies or query parameters. Other methods return HTTP 405 and `Allow: GET`. Unknown endpoints return HTTP 404. Agent registration and mutation endpoints remain deferred.
+An empty registry produces `agents: []`. Offline agents remain listed until archived. `GET /v1/agents?include_archived=true` also returns archived sessions; `include_archived=false` is equivalent to the default. Only this single boolean query parameter is accepted on `/v1/agents`. Other GET endpoints reject query parameters, and all GET endpoints reject bodies. Agent listing applies the registry's presence expiration rules. Other methods return HTTP 405 and `Allow: GET`. Unknown endpoints return HTTP 404. Agent registration and mutation endpoints remain deferred.
 
 Example hello response:
 
@@ -47,7 +47,7 @@ Example hello response:
 
 `internal/protocol` defines dedicated public response types and validates them before serialization. The local SQLite agent model is never serialized directly by HTTP handlers.
 
-The public agent fields are ID, display name, provider, status, task, project, repository, and branch. Working directories, file lists, local timestamps, database paths, configuration, environment variables, and internal error details are excluded. No filesystem or environment values are read to populate metadata.
+The public agent fields are ID, display name, provider, status, task, project, repository, branch, and optional `last_seen_at` and `archived` fields. `last_seen_at` is an RFC3339 timestamp; older peers may omit it. `archived` is true for archived offline sessions and otherwise omitted. Working directories, file lists, registration timestamps, database paths, configuration, environment variables, and internal error details are excluded. No filesystem or environment values are read to populate metadata.
 
 Public text is length-bounded and checked for control characters, absolute Unix/Windows paths, environment references or assignments, recognizable credential patterns, and credential-bearing URLs. Unsafe optional values are omitted; unsafe display names use a neutral fallback. HTTP(S) repository URLs are normalized to host/path without `.git`; unsafe or unrecognized repository formats are omitted. Local records are unchanged.
 

@@ -89,8 +89,9 @@ The background service starts at login. Use these commands to inspect and manage
 | `agent-relay dnd` | Toggle receiving new messages and questions. |
 | `agent-relay nodeid` | Print this computer's node ID. |
 | `agent-relay peers` | List discovered computers and their trust state. |
-| `agent-relay agents` | Discover local and remote agent sessions. |
+| `agent-relay agents` | List local and remote sessions, active first, with last-seen ages. |
 | `agent-relay agents --local` | List local sessions without peer lookup. |
+| `agent-relay agents --all` | Include archived sessions in the list. |
 | `agent-relay agents retention` | Show session archive and deletion ages. |
 | `agent-relay agents set-retention --archive-days 7 --delete-days 30` | Change session retention on this computer. |
 | `agent-relay inbox` | Read unread messages and pending questions. |

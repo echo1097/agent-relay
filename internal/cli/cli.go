@@ -291,7 +291,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	}
 	if command == "agents" {
 		if agentFlags.action == "list" && !agentFlags.local {
-			return showAgentDirectory(ctx, directory, false, output)
+			return showAgentDirectory(ctx, directory, false, agentFlags.all, output)
 		}
 		return runAgents(ctx, store, registry, agentFlags, output)
 	}
@@ -332,7 +332,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if err != nil {
 		return err
 	}
-	if err := listAgents(ctx, registry, output); err != nil {
+	if err := listAgents(ctx, registry, false, output); err != nil {
 		return err
 	}
 	if _, err := showTailscale(ctx, output, client); err != nil {
@@ -347,7 +347,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if _, err := fmt.Fprintln(output, "\nRemote agents"); err != nil {
 		return err
 	}
-	if err := showAgentDirectory(ctx, directory, true, output); err != nil {
+	if err := showAgentDirectory(ctx, directory, true, false, output); err != nil {
 		_, writeErr := fmt.Fprintf(output, "Remote agent lookup unavailable: %v. Run agent-relay doctor.\n", err)
 		return writeErr
 	}

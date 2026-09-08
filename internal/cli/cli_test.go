@@ -3,6 +3,7 @@ package cli
 import (
 	"agent-relay/internal/config"
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/storage"
 	"agent-relay/internal/tailscale"
 	"agent-relay/migrations"
 	"bytes"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCommands(t *testing.T) {
@@ -125,6 +127,99 @@ func TestAgentRetentionCommands(t *testing.T) {
 	}
 	if _, err := run("set-retention", "--archive-days", "seven"); err == nil {
 		t.Fatal("accepted malformed archive days")
+	}
+}
+
+func TestLocalAgentListOrderingAndArchivedHint(t *testing.T) {
+	home := t.TempDir()
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var output, errorOutput bytes.Buffer
+		commandArgs := append([]string{"agents"}, args...)
+		commandArgs = append(commandArgs, "--home", home)
+		err := Run(context.Background(), commandArgs, &output, &errorOutput, "test")
+		return output.String(), err
+	}
+	register := func(name string) string {
+		output, err := run("register", "--name", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(output)
+	}
+	archivedID := register("archived")
+	if _, err := run("disconnect", "--id", archivedID); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.Open(context.Background(), filepath.Join(home, "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := store.Node(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RetainAgents(context.Background(), node.ID, time.Now().UTC().Add(8*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	activeID := register("active")
+	oldOfflineID := register("offline-old")
+	if _, err := run("disconnect", "--id", oldOfflineID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	newOfflineID := register("offline-new")
+	if _, err := run("disconnect", "--id", newOfflineID); err != nil {
+		t.Fatal(err)
+	}
+	output, err := run("list", "--local")
+	if err != nil || !strings.Contains(output, "LAST SEEN") || strings.Contains(output, "archived") {
+		t.Fatalf("default local list: %q, %v", output, err)
+	}
+	activeIndex := strings.Index(output, "active")
+	newOfflineIndex := strings.Index(output, "offline-new")
+	oldOfflineIndex := strings.Index(output, "offline-old")
+	if activeIndex < 0 || newOfflineIndex < 0 || oldOfflineIndex < 0 || activeIndex > newOfflineIndex || newOfflineIndex > oldOfflineIndex {
+		t.Fatalf("unexpected local ordering: %s", output)
+	}
+	output, err = run("list", "--local", "--all")
+	if err != nil || !strings.Contains(output, "archived") || !strings.Contains(output, "offline (archived)") {
+		t.Fatalf("all local list: %q, %v", output, err)
+	}
+	if activeID == "" {
+		t.Fatal("active registration missing")
+	}
+
+	archivedHome := t.TempDir()
+	commandArgs := []string{"agents", "register", "--name", "only-archived", "--home", archivedHome}
+	var outputBuffer, errorBuffer bytes.Buffer
+	if err := Run(context.Background(), commandArgs, &outputBuffer, &errorBuffer, "test"); err != nil {
+		t.Fatal(err)
+	}
+	onlyArchivedID := strings.TrimSpace(outputBuffer.String())
+	outputBuffer.Reset()
+	if err := Run(context.Background(), []string{"agents", "disconnect", "--id", onlyArchivedID, "--home", archivedHome}, &outputBuffer, &errorBuffer, "test"); err != nil {
+		t.Fatal(err)
+	}
+	store, err = storage.Open(context.Background(), filepath.Join(archivedHome, "relay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err = store.Node(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RetainAgents(context.Background(), node.ID, time.Now().UTC().Add(8*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	outputBuffer.Reset()
+	if err := Run(context.Background(), []string{"agents", "list", "--local", "--home", archivedHome}, &outputBuffer, &errorBuffer, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(outputBuffer.String(), "Use --all to include archived sessions") {
+		t.Fatalf("archived-only hint missing: %s", outputBuffer.String())
 	}
 }
 

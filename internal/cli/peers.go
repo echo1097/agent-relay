@@ -74,6 +74,33 @@ func formatTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
+func formatRelativeTime(value time.Time) string {
+	if value.IsZero() {
+		return "unknown"
+	}
+	age := time.Since(value)
+	if age < 0 || age < time.Minute {
+		return "just now"
+	}
+	if age < time.Hour {
+		minutes := int(age / time.Minute)
+		return fmt.Sprintf("%d minute%s ago", minutes, pluralSuffix(minutes))
+	}
+	if age < 24*time.Hour {
+		hours := int(age / time.Hour)
+		return fmt.Sprintf("%d hour%s ago", hours, pluralSuffix(hours))
+	}
+	days := int(age / (24 * time.Hour))
+	return fmt.Sprintf("%d day%s ago", days, pluralSuffix(days))
+}
+
+func pluralSuffix(value int) string {
+	if value == 1 {
+		return ""
+	}
+	return "s"
+}
+
 func showTailscale(ctx context.Context, output io.Writer, client tailscale.Client) (tailscale.Status, error) {
 	status, statusErr := client.Status(ctx)
 	_, err := fmt.Fprintf(output, "\nTailscale\n  Installed: %t\n  Running: %t\n  Connected: %t\n  IPv4: %s\n  Visible peers: %d\n", status.Installed, status.Running, status.Connected, status.IP, len(status.Peers))

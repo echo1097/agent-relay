@@ -46,7 +46,7 @@ The daemon performs a sweep at startup and every second. Consequently background
 
 Busy and idle are explicit caller-supplied states. Automatic idle detection is deferred because heartbeat activity alone does not establish whether an agent is working. The daemon applies [session retention](retention.md) at startup and every minute: offline sessions are archived after 7 days and deleted with their local Relay history after 30 days by default. Registry reads still expire presence, but do not delete history.
 
-`Archived` is separate from presence status. Archived sessions remain offline and can be accessed by ID until deletion. Reconnect, heartbeat, metadata updates, and active status updates clear the archive flag and refresh last seen. `List` includes archived records for internal history and administration callers; directory and CLI views may filter them.
+`Archived` is separate from presence status. Archived sessions remain offline and can be accessed by ID until deletion. Reconnect, heartbeat, metadata updates, and active status updates clear the archive flag and refresh last seen. `List` includes archived records for internal history and administration callers. CLI and MCP directory views hide archived sessions by default, sort active sessions first and then by most recent last seen, and offer `--all` or `include_archived: true` to include them.
 
 ## Persistence
 

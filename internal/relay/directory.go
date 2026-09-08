@@ -20,6 +20,10 @@ type PeerProber interface {
 	Agents(context.Context, string, int) ([]protocol.Agent, error)
 }
 
+type archivedPeerProber interface {
+	AgentsIncludingArchived(context.Context, string, int) ([]protocol.Agent, error)
+}
+
 type Agent struct {
 	protocol.Agent
 	Node  protocol.Node      `json:"node"`
@@ -45,6 +49,14 @@ type Directory struct {
 }
 
 func (directory *Directory) List(ctx context.Context) (AgentList, error) {
+	return directory.list(ctx, false)
+}
+
+func (directory *Directory) ListAll(ctx context.Context) (AgentList, error) {
+	return directory.list(ctx, true)
+}
+
+func (directory *Directory) list(ctx context.Context, include bool) (AgentList, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	result := AgentList{Agents: []Agent{}, Unavailable: []string{}}
@@ -53,6 +65,9 @@ func (directory *Directory) List(ctx context.Context) (AgentList, error) {
 		return result, err
 	}
 	for _, agent := range localAgents {
+		if agent.Archived && !include {
+			continue
+		}
 		result.Agents = append(result.Agents, Agent{Agent: protocol.PublicAgent(agent), Node: directory.Node, Trust: storage.Trusted})
 	}
 	snapshot, err := discovery.Read(directory.Path)
@@ -104,12 +119,22 @@ func (directory *Directory) List(ctx context.Context) (AgentList, error) {
 			result.Unavailable = append(result.Unavailable, nodeID)
 			continue
 		}
-		hello, probeErr := directory.Prober.Hello(ctx, address, peer.Port)
-		if probeErr != nil || hello.Validate() != nil || hello.Node.ID != nodeID {
+		hello, helloErr := directory.Prober.Hello(ctx, address, peer.Port)
+		if helloErr != nil || hello.Validate() != nil || hello.Node.ID != nodeID {
 			result.Unavailable = append(result.Unavailable, nodeID)
 			continue
 		}
-		remoteAgents, probeErr := directory.Prober.Agents(ctx, address, peer.Port)
+		var remoteAgents []protocol.Agent
+		var probeErr error
+		if include {
+			if prober, ok := directory.Prober.(archivedPeerProber); ok {
+				remoteAgents, probeErr = prober.AgentsIncludingArchived(ctx, address, peer.Port)
+			} else {
+				remoteAgents, probeErr = directory.Prober.Agents(ctx, address, peer.Port)
+			}
+		} else {
+			remoteAgents, probeErr = directory.Prober.Agents(ctx, address, peer.Port)
+		}
 		if probeErr != nil {
 			result.Unavailable = append(result.Unavailable, nodeID)
 			continue
@@ -125,6 +150,9 @@ func (directory *Directory) List(ctx context.Context) (AgentList, error) {
 			if agent.Validate() != nil {
 				return result, discovery.ErrMalformed
 			}
+			if agent.Archived && !include {
+				continue
+			}
 			result.Agents = append(result.Agents, Agent{Agent: agent, Node: hello.Node, Trust: trust.State})
 		}
 	}
@@ -135,7 +163,25 @@ func (directory *Directory) List(ctx context.Context) (AgentList, error) {
 		}
 		seen[agent.ID] = true
 	}
-	sort.Slice(result.Agents, func(left, right int) bool { return result.Agents[left].ID < result.Agents[right].ID })
+	sort.SliceStable(result.Agents, func(left, right int) bool {
+		leftActive := result.Agents[left].Status != agents.Offline
+		rightActive := result.Agents[right].Status != agents.Offline
+		if leftActive != rightActive {
+			return leftActive
+		}
+		leftSeen := result.Agents[left].LastSeenAt
+		rightSeen := result.Agents[right].LastSeenAt
+		if leftSeen != nil && rightSeen == nil {
+			return true
+		}
+		if leftSeen == nil && rightSeen != nil {
+			return false
+		}
+		if leftSeen != nil && rightSeen != nil && !leftSeen.Equal(*rightSeen) {
+			return leftSeen.After(*rightSeen)
+		}
+		return result.Agents[left].ID < result.Agents[right].ID
+	})
 	sort.Strings(result.Unavailable)
 	directory.mutex.Lock()
 	if directory.known == nil {
@@ -155,7 +201,7 @@ func (directory *Directory) List(ctx context.Context) (AgentList, error) {
 }
 
 func (directory *Directory) Get(ctx context.Context, agentID string) (Agent, error) {
-	result, err := directory.List(ctx)
+	result, err := directory.ListAll(ctx)
 	if err != nil {
 		return Agent{}, err
 	}

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -104,7 +105,21 @@ func (handler *httpHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 		handler.writeError(writer, http.StatusMethodNotAllowed, protocol.MethodNotAllowed, "This endpoint accepts GET requests only.")
 		return
 	}
-	if request.ContentLength != 0 || len(request.TransferEncoding) != 0 || request.URL.RawQuery != "" {
+	includeArchived := false
+	if request.URL.RawQuery != "" {
+		if path != "/v1/agents" {
+			handler.writeError(writer, http.StatusBadRequest, protocol.InvalidRequest, "Request bodies and query parameters are not supported.")
+			return
+		}
+		query, err := url.ParseQuery(request.URL.RawQuery)
+		values, valid := query["include_archived"]
+		if err != nil || !valid || len(query) != 1 || len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+			handler.writeError(writer, http.StatusBadRequest, protocol.InvalidRequest, "Only include_archived=true or include_archived=false is supported.")
+			return
+		}
+		includeArchived = values[0] == "true"
+	}
+	if request.ContentLength != 0 || len(request.TransferEncoding) != 0 {
 		handler.writeError(writer, http.StatusBadRequest, protocol.InvalidRequest, "Request bodies and query parameters are not supported.")
 		return
 	}
@@ -130,7 +145,7 @@ func (handler *httpHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 		}
 		response := protocol.AgentList{ProtocolVersion: protocol.Version, Agents: []protocol.Agent{}}
 		for _, agent := range localAgents {
-			if agent.NodeID == handler.hello.Node.ID {
+			if agent.NodeID == handler.hello.Node.ID && (includeArchived || !agent.Archived) {
 				response.Agents = append(response.Agents, protocol.PublicAgent(agent))
 			}
 		}

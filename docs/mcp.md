@@ -41,7 +41,7 @@ The stdio process is trusted local software with the same database permissions a
 
 | Tool | Input | Behavior |
 | --- | --- | --- |
-| `relay.list_agents` | Optional `repository`, `project`, `status` | Discover local and remote peers with relevant work. Includes your ID, public metadata, trust, and unavailable node IDs. |
+| `relay.list_agents` | Optional `repository`, `project`, `status`, `include_archived` | Discover local and remote peers, active first, with last-seen times, your ID, public metadata, trust, and unavailable node IDs. Archived sessions are hidden by default. |
 | `relay.get_agent` | `agent_id` | Fetch current public metadata for a specific agent. |
 | `relay.ask_agent` | `agent_id`, `question`, optional `conversation_id` | Queue a focused question and return its IDs and delivery status. |
 | `relay.send_message` | `agent_id`, `text`, optional `conversation_id` | Queue an update without requiring an answer. |

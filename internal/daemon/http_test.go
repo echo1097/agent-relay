@@ -253,6 +253,44 @@ func TestHTTPFiltersOtherNodesAndDuplicateVersions(t *testing.T) {
 	}
 }
 
+func TestHTTPAgentArchiveFilter(t *testing.T) {
+	options := testHTTPOptions()
+	server, err := newHTTPServer(listFunc(func(context.Context) ([]agents.Agent, error) {
+		return []agents.Agent{
+			{ID: "agent_019a84fc-1b72-7000-8000-000000000001", NodeID: options.Node.ID, DisplayName: "current", Status: agents.Online},
+			{ID: "agent_019a84fc-1b72-7000-8000-000000000002", NodeID: options.Node.ID, DisplayName: "archived", Status: agents.Offline, Archived: true},
+		}, nil
+	}), options, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
+	writer := httptest.NewRecorder()
+	server.Handler.ServeHTTP(writer, request)
+	var list protocol.AgentList
+	if err := json.Unmarshal(writer.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if writer.Code != http.StatusOK || len(list.Agents) != 1 || list.Agents[0].DisplayName != "current" {
+		t.Fatalf("default archive filter: %d %s", writer.Code, writer.Body)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/v1/agents?include_archived=true", nil)
+	writer = httptest.NewRecorder()
+	server.Handler.ServeHTTP(writer, request)
+	if err := json.Unmarshal(writer.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if writer.Code != http.StatusOK || len(list.Agents) != 2 {
+		t.Fatalf("archive-inclusive listing: %d %s", writer.Code, writer.Body)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/v1/agents?include_archived=invalid", nil)
+	writer = httptest.NewRecorder()
+	server.Handler.ServeHTTP(writer, request)
+	if writer.Code != http.StatusBadRequest {
+		t.Fatalf("invalid archive filter accepted: %d %s", writer.Code, writer.Body)
+	}
+}
+
 func TestHTTPGracefulShutdownWaitsForRequest(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})

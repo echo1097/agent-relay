@@ -4,6 +4,19 @@ The daemon archives offline sessions after 7 days and permanently deletes them a
 
 Archiving keeps the session, its inbox, and its conversation history available. Reconnecting with the existing `--agent-id`, sending a heartbeat, or setting an active status restores the session and refreshes its last-seen time. A connected MCP process continues to send heartbeats even when its model is not working, so it does not age out merely because its chat is idle.
 
+## Find a session
+
+Normal session lists hide archived records, show active sessions before offline ones, and sort each group by most recent last seen. The `LAST SEEN` column shows a relative age; an older peer that does not report a timestamp displays `unknown`.
+
+```sh
+agent-relay agents
+agent-relay agents --local
+agent-relay agents --all
+agent-relay agents --local --all
+```
+
+`--all` includes archived sessions on local and reachable remote computers, marked `offline (archived)`. Recent offline sessions remain visible by default. Looking up an archived session by ID still works. MCP clients can pass `include_archived: true` to `relay.list_agents`; the default hides archived sessions.
+
 ## Change the ages
 
 Inspect the saved policy:

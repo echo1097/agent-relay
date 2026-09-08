@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -37,6 +38,7 @@ Register and update-metadata accept --task, --project, --repository, --branch,
 
 type agentOptions struct {
 	local       bool
+	all         bool
 	action      string
 	id          string
 	name        string
@@ -56,6 +58,7 @@ func agentArguments(flags *flag.FlagSet, args []string) (*agentOptions, []string
 	switch options.action {
 	case "list":
 		flags.BoolVar(&options.local, "local", false, "list only local sessions without network requests")
+		flags.BoolVar(&options.all, "all", false, "include archived sessions")
 		return options, args, nil
 	case "retention":
 		return options, args, nil
@@ -103,7 +106,7 @@ func agentArguments(flags *flag.FlagSet, args []string) (*agentOptions, []string
 
 func runAgents(ctx context.Context, store *storage.Store, registry *agents.Registry, options *agentOptions, output io.Writer) error {
 	if options.action == "list" {
-		return listAgents(ctx, registry, output)
+		return listAgents(ctx, registry, options.all, output)
 	}
 	if options.action == "retention" {
 		policy, err := store.RetentionPolicy(ctx)
@@ -162,21 +165,47 @@ func printRetentionPolicy(output io.Writer, policy agents.RetentionPolicy) error
 	return err
 }
 
-func listAgents(ctx context.Context, registry *agents.Registry, output io.Writer) error {
+func listAgents(ctx context.Context, registry *agents.Registry, includeArchived bool, output io.Writer) error {
 	localAgents, err := registry.List(ctx)
 	if err != nil {
 		return err
 	}
-	if len(localAgents) == 0 {
-		_, err := fmt.Fprintln(output, "No local agents.")
-		return err
-	}
-	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "ID\tAGENT\tSTATUS\tTASK"); err != nil {
-		return err
-	}
+	visibleAgents := make([]agents.Agent, 0, len(localAgents))
 	for _, agent := range localAgents {
-		if _, err := fmt.Fprintf(writer, "%s\t%q\t%s\t%q\n", agent.ID, agent.DisplayName, agent.Status, agent.Task); err != nil {
+		if !includeArchived && agent.Archived {
+			continue
+		}
+		visibleAgents = append(visibleAgents, agent)
+	}
+	if len(visibleAgents) == 0 {
+		message := "No local agents."
+		if len(localAgents) > 0 && !includeArchived {
+			message = "No active agents. Use --all to include archived sessions."
+		}
+		_, err := fmt.Fprintln(output, message)
+		return err
+	}
+	sort.SliceStable(visibleAgents, func(left, right int) bool {
+		leftActive := visibleAgents[left].Status != agents.Offline
+		rightActive := visibleAgents[right].Status != agents.Offline
+		if leftActive != rightActive {
+			return leftActive
+		}
+		if !visibleAgents[left].LastSeenAt.Equal(visibleAgents[right].LastSeenAt) {
+			return visibleAgents[left].LastSeenAt.After(visibleAgents[right].LastSeenAt)
+		}
+		return visibleAgents[left].ID < visibleAgents[right].ID
+	})
+	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	if _, err := fmt.Fprintln(writer, "ID\tAGENT\tSTATUS\tLAST SEEN\tTASK"); err != nil {
+		return err
+	}
+	for _, agent := range visibleAgents {
+		status := string(agent.Status)
+		if agent.Archived {
+			status += " (archived)"
+		}
+		if _, err := fmt.Fprintf(writer, "%s\t%q\t%s\t%s\t%q\n", agent.ID, agent.DisplayName, status, formatRelativeTime(agent.LastSeenAt), agent.Task); err != nil {
 			return err
 		}
 	}

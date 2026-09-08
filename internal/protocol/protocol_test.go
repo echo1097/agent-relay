@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-relay/internal/agents"
 )
@@ -12,13 +13,17 @@ const testNodeID = "node_019a84fc-1b72-7000-8000-000000000001"
 const testAgentID = "agent_019a84fc-1b72-7000-8000-000000000002"
 
 func TestPublicAgentProjection(t *testing.T) {
-	localAgent := agents.Agent{ID: testAgentID, NodeID: testNodeID, DisplayName: "codex-auth", Provider: "codex", Status: agents.Busy, Metadata: agents.Metadata{Task: "Investigating auth", Project: "backend", Repository: "https://github.com/example/backend.git", Branch: "fix/auth", Cwd: "/Users/private/backend", Files: []string{"/Users/private/secret.go", "relative.go"}}}
+	lastSeenAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	localAgent := agents.Agent{ID: testAgentID, NodeID: testNodeID, DisplayName: "codex-auth", Provider: "codex", Status: agents.Busy, Archived: true, LastSeenAt: lastSeenAt, Metadata: agents.Metadata{Task: "Investigating auth", Project: "backend", Repository: "https://github.com/example/backend.git", Branch: "fix/auth", Cwd: "/Users/private/backend", Files: []string{"/Users/private/secret.go", "relative.go"}}}
 	publicAgent := PublicAgent(localAgent)
 	if err := publicAgent.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	if publicAgent.Task != localAgent.Task || publicAgent.Repository != "github.com/example/backend" || publicAgent.Branch != "fix/auth" {
 		t.Fatalf("lost safe fields: %+v", publicAgent)
+	}
+	if !publicAgent.Archived || publicAgent.LastSeenAt == nil || !publicAgent.LastSeenAt.Equal(lastSeenAt) {
+		t.Fatalf("lost listing fields: %+v", publicAgent)
 	}
 	data, err := json.Marshal(publicAgent)
 	if err != nil {
@@ -28,6 +33,23 @@ func TestPublicAgentProjection(t *testing.T) {
 		if strings.Contains(string(data), forbidden) {
 			t.Fatalf("exposed %q: %s", forbidden, data)
 		}
+	}
+}
+
+func TestAgentListingFieldsAreBackwardCompatible(t *testing.T) {
+	var agent Agent
+	if err := json.Unmarshal([]byte(`{"id":"agent_019a84fc-1b72-7000-8000-000000000002","display_name":"agent","status":"offline"}`), &agent); err != nil {
+		t.Fatal(err)
+	}
+	if agent.Archived || agent.LastSeenAt != nil {
+		t.Fatalf("unexpected optional fields: %+v", agent)
+	}
+	data, err := json.Marshal(PublicAgent(agents.Agent{ID: testAgentID, DisplayName: "agent", Status: agents.Offline}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "archived") || strings.Contains(string(data), "last_seen_at") {
+		t.Fatalf("optional fields were not omitted: %s", data)
 	}
 }
 
