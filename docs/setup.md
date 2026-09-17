@@ -56,7 +56,7 @@ Malformed TOML/JSON, duplicate JSON keys, non-object server maps, nonregular fil
 
 To restore, close the client and copy the printed backup over the config file. To disconnect Relay, remove only its `agent-relay` server entry with the client’s MCP management command or editor. Restart the client afterward. If tools are missing, check the binary still exists, the configured Relay home matches the daemon, and a project or organization policy has not disabled the server.
 
-`setup --if-present` allows an installer to skip undetected clients without failing. `setup --remove --if-present` removes only entries that exactly match the current executable and Relay home, preserving other settings and making a private backup. Changed entries are refused for manual review. It cannot be combined with `--replace`.
+`setup --if-present` allows an installer to skip undetected clients without failing. `setup --remove --if-present` removes only entries that exactly match the current executable and Relay home, preserving other settings and making a private backup. Removal also cleans up managed startup instructions and unchanged managed skills at both clients' configured locations, even when their application or MCP config is already gone. Missing files and directories are left absent. Changed MCP entries are refused for manual review. It cannot be combined with `--replace`.
 
 ## Bundled agent skill
 

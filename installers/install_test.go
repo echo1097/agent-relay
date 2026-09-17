@@ -158,6 +158,17 @@ func TestInstallerPlatformsAndUninstall(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%v: %s", err, output)
 				}
+				if iteration == 0 && !strings.Contains(output, "Removing client entries, startup instructions, and skills") {
+					t.Fatalf("missing client cleanup status: %s", output)
+				}
+			}
+			commands, err := os.ReadFile(state.logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleanupCommand := "setup --home " + state.relayHome + " --remove --if-present\n"
+			if strings.Count(string(commands), cleanupCommand) != 1 {
+				t.Fatalf("uninstall did not clean up clients exactly once: %s", commands)
 			}
 			if _, err := os.Stat(filepath.Join(state.binDir, "agent-relay")); !os.IsNotExist(err) {
 				t.Fatal("binary retained")

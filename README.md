@@ -114,7 +114,7 @@ Rerun the installation command to install the latest release. Your identity, mes
 curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh -s -- --uninstall
 ```
 
-Uninstall removes the managed executable, stops and removes its service, and removes matching Relay client entries. Your data, identities, messages, logs, and backups are retained. Reconnect your coding clients afterward.
+Uninstall removes the managed executable, stops and removes its service, and removes matching Relay client entries, Relay's startup sections in `AGENTS.md`/`CLAUDE.md`, and unchanged installed Relay skills. Personal instructions and customized skills are preserved, along with your data, identities, messages, logs, and backups. Reconnect your coding clients afterward.
 
 For custom installation paths or modified client entries, follow the [uninstall instructions](docs/install.md#uninstall).
 

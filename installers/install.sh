@@ -216,7 +216,7 @@ main() {
             printf 'Agent Relay is not installed at %s.\n' "$binaryPath"
             return
         fi
-        runStep "Disconnecting clients" "$binaryPath" setup --home "$relayHome" --remove --if-present || fail 'MCP removal failed. Review the reported conflict; the executable and service are retained.'
+        runStep "Removing client entries, startup instructions, and skills" "$binaryPath" setup --home "$relayHome" --remove --if-present || fail 'Client cleanup failed. Review the reported error; the executable and service are retained.'
         runStep "Removing background service" "$binaryPath" service uninstall --name "$serviceName" || fail 'Service removal failed. The executable is retained for recovery.'
         rm "$binaryPath" "$receiptPath"
         printf '\nAgent Relay uninstalled. Data, identities, logs, and private backups are preserved at %s and the documented service/client locations.\n' "$relayHome"

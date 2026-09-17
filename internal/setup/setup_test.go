@@ -164,3 +164,21 @@ func TestRemoveOnlyMatchingEntry(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveLeavesMissingConfigAbsent(t *testing.T) {
+	for _, clientName := range []string{"codex", "claude"} {
+		t.Run(clientName, func(t *testing.T) {
+			configDir := filepath.Join(t.TempDir(), "missing-client")
+			client := Client{Name: clientName, Path: filepath.Join(configDir, "config")}
+			for range 2 {
+				result, err := Remove(client, "/bin/relay", "/relay")
+				if err != nil || result.Changed || result.Backup != "" {
+					t.Fatalf("removing absent config: %+v %v", result, err)
+				}
+			}
+			if _, err := os.Stat(configDir); !os.IsNotExist(err) {
+				t.Fatal("removal created a client directory", err)
+			}
+		})
+	}
+}
