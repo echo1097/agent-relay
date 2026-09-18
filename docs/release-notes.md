@@ -1,17 +1,21 @@
-# Agent Relay v0.1.6
+# Agent Relay v0.1.7
 
-Setup now adds a short startup section to Claude Code and Codex global instructions. It asks agents to read the Relay skill before beginning work on the first turn, check their inbox at the start and end of each turn, and keep their work status current.
+Agent Relay now includes `agent-relay update` and `agent-relay uninstall` for installations created by the installer.
 
-Claude uses `~/.claude/CLAUDE.md`. Codex uses `~/.codex/AGENTS.md`, or an existing nonempty `AGENTS.override.md` when it takes precedence. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` overrides are respected.
+`agent-relay update` installs the latest release using the recorded installation paths and service name, verifies the download, and restarts the background service. Use `agent-relay update --version TAG` to choose a release.
 
-Existing instructions outside the managed section are preserved byte for byte, with private backups before changes. Repeated setup avoids duplicate sections. Uninstall removes only the Relay section, retaining personal instructions. Incomplete or duplicate markers are rejected for review.
+`agent-relay uninstall` removes the managed executable, background service, matching MCP client entries, Relay startup instructions, and unchanged managed skills. It works without a network connection and retains your database, identity, messages, trust settings, logs, and backups. Personal client instructions and unrelated settings are preserved.
 
-This improves first-turn skill discovery through startup guidance. It does not guarantee model behavior, wake idle agents, or change client approvals.
+The installer also shows download progress, and interrupted update or uninstall commands stop their child processes cleanly.
 
-Update with:
+Session lists now show active sessions first and include last-seen ages. Automatic cleanup archives offline sessions after 7 days and permanently deletes them after 30 days by default, measured from their last-seen time. Deletion includes those sessions' messages and conversations. Use `agent-relay agents retention` to inspect the policy, `agent-relay agents set-retention --archive-days 14 --delete-days 60` to change it, and `agent-relay agents --all` to include archived sessions.
+
+To upgrade from v0.1.6 or earlier, run the installer once:
 
 ```sh
 curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh
 ```
 
-The installer restarts the backend. Start new Claude and Codex sessions after upgrading to load the startup guidance.
+After that, future updates can use `agent-relay update` directly. The installer restarts the backend; reconnect Claude and Codex MCP clients after upgrading.
+
+The final health check can still report an unreachable saved peer even when the new version is installed and running. Completed installation steps are retained.
