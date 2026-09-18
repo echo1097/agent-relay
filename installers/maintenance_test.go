@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -188,8 +190,21 @@ func TestManagedCommandsRefuseInvalidInstallation(t *testing.T) {
 }
 
 func TestManagedUpdateCancellationCleansUp(t *testing.T) {
+	for _, stage := range []struct{ name, key, value, pidFile string }{
+		{"download", "testInterruptDownload", "1", "curl-pid"},
+		{"release lookup", "testInterruptResolve", "1", "curl-pid"},
+		{"client setup", "testInterruptCommand", "setup", "step-pid"},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			checkManagedUpdateCancellation(t, stage.key, stage.value, stage.pidFile)
+		})
+	}
+}
+
+func checkManagedUpdateCancellation(t *testing.T, key, value, pidFile string) {
+	t.Helper()
 	state := prepareMaintenanceTest(t)
-	t.Setenv("testInterruptDownload", "1")
+	t.Setenv(key, value)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	var output bytes.Buffer
@@ -209,6 +224,18 @@ func TestManagedUpdateCancellationCleansUp(t *testing.T) {
 	}
 	cancel()
 	err := <-result
+	pidData, readErr := os.ReadFile(filepath.Join(state.root, pidFile))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	childPid, parseErr := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	if processErr := syscall.Kill(childPid, 0); !errors.Is(processErr, syscall.ESRCH) {
+		_ = syscall.Kill(childPid, syscall.SIGKILL)
+		t.Errorf("child process survived update cancellation: %v", processErr)
+	}
 	if !started || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: started=%t: %v: %s", started, err, &output)
 	}

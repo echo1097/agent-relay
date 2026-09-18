@@ -61,7 +61,15 @@ done
 printf '%s\n' "$requestUrl" >> "$testRequests"
 [ "${testDownloadFailure:-0}" = 0 ] || exit 22
 case "$requestUrl" in
-    */latest) printf '%s' "https://github.com/echo1097/agent-relay/releases/tag/${testLatestVersion:-v0.1.0}" ;;
+    */latest)
+        if [ "${testInterruptResolve:-0}" = 1 ]; then
+            printf '%s\n' "$$" > "$testCurlPid"
+            printf '%s\n' "$PPID" > "$testInstallerPid"
+            mkfifo "$testBlock"
+            exec 3<"$testBlock"
+        fi
+        printf '%s' "https://github.com/echo1097/agent-relay/releases/tag/${testLatestVersion:-v0.1.0}"
+        ;;
     */SHA256SUMS) cp "$testManifest" "$outputPath" ;;
     */agent-relay_*)
         if [ "${testInterruptDownload:-0}" = 1 ]; then
@@ -89,6 +97,12 @@ esac
 	binaryData := []byte(`#!/bin/sh
 set -eu
 printf '%s\n' "$*" >> "$testLog"
+if [ "$1" = "${testInterruptCommand:-none}" ]; then
+    printf '%s\n' "$$" > "$testStepPid"
+    printf '%s\n' "$PPID" > "$testInstallerPid"
+    mkfifo "$testBlock"
+    exec 3<"$testBlock"
+fi
 if [ "$1" = version ]; then echo 'agent-relay v0.1.0'; fi
 if [ "$1" = status ]; then printf 'Node\n  Mac\n  node_test-123\n'; fi
 if [ "$1" != version ]; then echo 'verbose diagnostic detail'; fi
@@ -110,7 +124,7 @@ if [ "$1" = "${testCommandFailure:-none}" ]; then echo 'specific failure reason'
 		t.Fatal(err)
 	}
 	state := &installerTest{root: root, binDir: filepath.Join(root, "bin with spaces"), relayHome: filepath.Join(root, "relay home"), logPath: filepath.Join(root, "commands")}
-	state.env = append(os.Environ(), "PATH="+mockDir+":"+os.Getenv("PATH"), "AGENT_RELAY_BIN_DIR="+state.binDir, "AGENT_RELAY_HOME="+state.relayHome, "AGENT_RELAY_SERVICE_NAME=installer-test", "AGENT_RELAY_VERSION=", "testBinary="+binaryPath, "testManifest="+manifestPath, "testLog="+state.logPath, "testRequests="+filepath.Join(root, "requests"), "testInstallerPid="+filepath.Join(root, "installer-pid"), "testCurlPid="+filepath.Join(root, "curl-pid"), "testBlock="+filepath.Join(root, "download-block"))
+	state.env = append(os.Environ(), "PATH="+mockDir+":"+os.Getenv("PATH"), "AGENT_RELAY_BIN_DIR="+state.binDir, "AGENT_RELAY_HOME="+state.relayHome, "AGENT_RELAY_SERVICE_NAME=installer-test", "AGENT_RELAY_VERSION=", "testBinary="+binaryPath, "testManifest="+manifestPath, "testLog="+state.logPath, "testRequests="+filepath.Join(root, "requests"), "testInstallerPid="+filepath.Join(root, "installer-pid"), "testCurlPid="+filepath.Join(root, "curl-pid"), "testStepPid="+filepath.Join(root, "step-pid"), "testBlock="+filepath.Join(root, "download-block"))
 	return state
 }
 

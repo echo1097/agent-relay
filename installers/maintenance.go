@@ -71,7 +71,8 @@ func Run(ctx context.Context, action, binaryPath, releaseVersion string, output,
 	)
 	command.Stdout = output
 	command.Stderr = errorOutput
-	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error { return syscall.Kill(-command.Process.Pid, syscall.SIGTERM) }
 	command.WaitDelay = 5 * time.Second
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
