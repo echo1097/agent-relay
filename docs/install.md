@@ -38,7 +38,15 @@ Installation doctor reports missing first-time agents, missing clients, missing 
 
 A sibling `.agent-relay-receipt` records the executable checksum, Relay home, and service name. Repeated installation accepts only a regular executable matching this receipt and the same settings. Unrelated executables, symlinks, changed binaries, mismatched homes, and conflicting service/client entries are refused. Installer operations share an exclusive directory lock. An interrupted process can leave the lock directory; confirm no installer is running before removing that empty directory.
 
-Rerun the command to upgrade. Existing identities, messages, and trust remain in the same data directory. The service installation updates its private binary and restarts the backend. Client configuration uses the stable executable path and keeps its existing safe-backup behavior. Setup also installs or updates the bundled skill for each detected client, preserving customized skills. Reconnect MCP clients after upgrades to load the new executable and skill.
+## Update
+
+```sh
+agent-relay update
+```
+
+The running executable invokes the installer bundled in the binary. It reads the sibling `.agent-relay-receipt`, uses its directory as the executable directory, verifies the executable and receipt match an installer-managed installation, and reuses the recorded Relay home and service name. Missing, malformed, or mismatched receipts are refused. The latest release is installed by default, regardless of `AGENT_RELAY_VERSION`; pin a release with `agent-relay update --version TAG`, such as `agent-relay update --version v0.1.0`. The command downloads and verifies the release binary and checksum manifest, updates and restarts the service, and repeats client setup with the installer's progress and safe-backup behavior. Existing identities, messages, and trust remain in the same data directory. Reconnect MCP clients after the update to load the new executable and skill.
+
+If the installation used `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, or `XDG_DATA_HOME`, set the same values when running `update` so client and service locations remain consistent.
 
 Downloads require HTTPS and an exact unique SHA-256 manifest entry before execution. Checksums detect corrupt or substituted downloads relative to the manifest; they are not an independent signature if the GitHub release itself is compromised. Releases are prepared as drafts and published only after all four binaries and the manifest are uploaded.
 
@@ -47,16 +55,36 @@ Installation is a sequence of recoverable steps, not a transaction across client
 ## Uninstall
 
 ```sh
+agent-relay uninstall
+```
+
+The running executable invokes the installer bundled in the binary and needs no release download, Tailscale connection, or build tools. It reads the sibling `.agent-relay-receipt`, uses its directory as the executable directory, verifies the executable and receipt match an installer-managed installation, and reuses the recorded Relay home and service name. Missing, malformed, or mismatched receipts are refused. Set the same `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` values used during installation so cleanup checks the original client and service locations.
+
+Uninstall removes matching MCP entries with private backups, Relay's marked startup sections from `AGENTS.md`, `AGENTS.override.md`, and `CLAUDE.md`, unchanged managed Relay skills and their receipts, the named service, and only the installer-managed executable and receipt. Cleanup checks both clients' configured locations even if the client application or MCP config is already gone. A modified MCP entry is refused for manual review, preserving the executable and service for recovery. Other servers, personal instructions, customized skills, and unrelated skill files remain intact. Databases, node identities, messages, trust, logs, previous service binaries, backups, and lock files are retained. Reconnect clients after uninstall.
+
+### Older-binary fallback
+
+Executables released before `update` and `uninstall` were added do not have these commands. Update them with the hosted installer:
+
+```sh
+curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh
+```
+
+To uninstall an older executable instead:
+
+```sh
 curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh -s -- --uninstall
 ```
 
-Supply the same bin directory, Relay home, service name, and client environment overrides used during installation. Uninstall needs no release download, Tailscale connection, or build tools. It verifies the local receipt before executing the binary, removes matching MCP entries with private backups, removes Relay's marked startup sections from `AGENTS.md`, `AGENTS.override.md`, and `CLAUDE.md`, and removes unchanged managed Relay skills and their receipts. Cleanup checks both clients' configured locations even if the client application or MCP config is already gone. It then stops/uninstalls the named service and removes only the installer-managed executable and receipt. A modified MCP entry is refused for manual review, preserving the executable and service for recovery. Other servers, personal instructions, customized skills, and unrelated skill files remain intact. A repeated uninstall is harmless.
+Pass the original `AGENT_RELAY_BIN_DIR`, `AGENT_RELAY_HOME`, `AGENT_RELAY_SERVICE_NAME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` settings when they were customized.
 
 Databases, node identities, messages, trust, logs, previous service binaries, backups, and lock files are deliberately retained. Custom client files configured outside the detected CODEX_HOME/CLAUDE_CONFIG_DIR paths require manual removal of their Relay entry. Reconnect clients after uninstall. See [service locations and recovery](services.md) and [client backup behavior](setup.md).
 
 ## Maintaining the hosted installer
 
 Source: `installers/install.sh`. The Pages workflow publishes only that file and these instructions as `README.txt`; it does not publish the entire docs directory. Configure repository Pages to use GitHub Actions. The intended public endpoint is `https://echo1097.github.io/agent-relay/install.sh`.
+
+`installers/script_content.go` bundles the same script into the executable for `update` and `uninstall`. Update both copies together; a test rejects mismatched contents.
 
 Push a reviewed `v*` tag to run the release workflow. It runs tests and vet, cross-compiles all four targets, generates SHA256SUMS, uploads a draft release, then publishes it. Do not move a published tag or replace its assets. A failed draft can be inspected and removed before retrying. Keep release tags compatible with the installer's `v` prefix validation.
 
