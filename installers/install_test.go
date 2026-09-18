@@ -61,7 +61,7 @@ done
 printf '%s\n' "$requestUrl" >> "$testRequests"
 [ "${testDownloadFailure:-0}" = 0 ] || exit 22
 case "$requestUrl" in
-    */latest) printf '%s' 'https://github.com/echo1097/agent-relay/releases/tag/v0.1.0' ;;
+    */latest) printf '%s' "https://github.com/echo1097/agent-relay/releases/tag/${testLatestVersion:-v0.1.0}" ;;
     */SHA256SUMS) cp "$testManifest" "$outputPath" ;;
     */agent-relay_*)
         if [ "${testInterruptDownload:-0}" = 1 ]; then

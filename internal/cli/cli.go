@@ -47,6 +47,8 @@ Commands:
   mcp       Serve agent tools over stdio (one coding session per process)
   setup     Configure Codex and Claude Code MCP clients (setup help)
   service   Install and control a background daemon (service help)
+  update    Update this installation to the latest release (update help)
+  uninstall Remove this installation and its client setup, preserving data
   messages  Queue messages or inspect local inboxes (messages help)
   version   Print the binary version
   help      Show this help
@@ -82,6 +84,8 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return runSetup(args[1:], output, errorOutput)
 	case "service":
 		return runService(ctx, args[1:], output, errorOutput)
+	case "update", "uninstall":
+		return runMaintenance(ctx, command, args[1:], output, errorOutput)
 	case "mcp", "daemon", "dnd", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
