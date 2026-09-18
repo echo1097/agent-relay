@@ -12,13 +12,13 @@ import (
 	"agent-relay/internal/agents"
 )
 
-const agentColumns = `id, node_id, display_name, provider, status, task, project, repository, branch, cwd, files, registered_at, last_seen_at`
+const agentColumns = `id, node_id, display_name, provider, status, task, project, repository, branch, cwd, files, registered_at, last_seen_at, archived`
 const agentTimeFormat = "2006-01-02T15:04:05.000000000Z"
 
 func scanAgent(row interface{ Scan(...any) error }) (agents.Agent, error) {
 	var agent agents.Agent
 	var files, registeredAt, lastSeenAt string
-	err := row.Scan(&agent.ID, &agent.NodeID, &agent.DisplayName, &agent.Provider, &agent.Status, &agent.Task, &agent.Project, &agent.Repository, &agent.Branch, &agent.Cwd, &files, &registeredAt, &lastSeenAt)
+	err := row.Scan(&agent.ID, &agent.NodeID, &agent.DisplayName, &agent.Provider, &agent.Status, &agent.Task, &agent.Project, &agent.Repository, &agent.Branch, &agent.Cwd, &files, &registeredAt, &lastSeenAt, &agent.Archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return agent, agents.ErrNotFound
 	}
@@ -42,10 +42,10 @@ func (store *Store) RegisterAgent(ctx context.Context, agent agents.Agent, resum
 		return agents.Agent{}, err
 	}
 	if resume {
-		return scanAgent(store.db.QueryRowContext(ctx, `UPDATE agents SET display_name = ?, provider = ?, status = 'online', task = ?, project = ?, repository = ?, branch = ?, cwd = ?, files = ?, last_seen_at = MAX(last_seen_at, ?) WHERE id = ? AND node_id = ? RETURNING `+agentColumns,
+		return scanAgent(store.db.QueryRowContext(ctx, `UPDATE agents SET display_name = ?, provider = ?, status = 'online', archived = 0, task = ?, project = ?, repository = ?, branch = ?, cwd = ?, files = ?, last_seen_at = MAX(last_seen_at, ?) WHERE id = ? AND node_id = ? RETURNING `+agentColumns,
 			agent.DisplayName, agent.Provider, agent.Task, agent.Project, agent.Repository, agent.Branch, agent.Cwd, string(files), agent.LastSeenAt.Format(agentTimeFormat), agent.ID, agent.NodeID))
 	}
-	return scanAgent(store.db.QueryRowContext(ctx, `INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING `+agentColumns,
+	return scanAgent(store.db.QueryRowContext(ctx, `INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0) RETURNING `+agentColumns,
 		agent.ID, agent.NodeID, agent.DisplayName, agent.Provider, agent.Status, agent.Task, agent.Project, agent.Repository, agent.Branch, agent.Cwd, string(files), agent.RegisteredAt.Format(agentTimeFormat), agent.LastSeenAt.Format(agentTimeFormat)))
 }
 
@@ -78,6 +78,9 @@ func (store *Store) UpdateAgent(ctx context.Context, nodeID, agentID string, sta
 		values = append(values, *status)
 	} else {
 		fields = append(fields, "status = CASE WHEN status = 'offline' THEN 'online' ELSE status END")
+	}
+	if status == nil || *status != agents.Offline {
+		fields = append(fields, "archived = 0")
 	}
 	if metadata != nil {
 		files, err := json.Marshal(metadata.Files)

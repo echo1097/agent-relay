@@ -20,13 +20,19 @@ type overviewOptions struct {
 	limit       int
 }
 
-func showAgentDirectory(ctx context.Context, directory *relay.Directory, remoteOnly bool, output io.Writer) error {
-	listing, err := directory.List(ctx)
+func showAgentDirectory(ctx context.Context, directory *relay.Directory, remoteOnly, includeArchived bool, output io.Writer) error {
+	var listing relay.AgentList
+	var err error
+	if includeArchived {
+		listing, err = directory.ListAll(ctx)
+	} else {
+		listing, err = directory.List(ctx)
+	}
 	if err != nil {
 		return err
 	}
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "ID\tAGENT\tMACHINE\tSTATUS\tTRUST\tTASK"); err != nil {
+	if _, err := fmt.Fprintln(writer, "ID\tAGENT\tMACHINE\tSTATUS\tLAST SEEN\tTRUST\tTASK"); err != nil {
 		return err
 	}
 	count := 0
@@ -35,7 +41,11 @@ func showAgentDirectory(ctx context.Context, directory *relay.Directory, remoteO
 			continue
 		}
 		count++
-		if _, err := fmt.Fprintf(writer, "%s\t%q\t%q\t%s\t%s\t%q\n", agent.ID, agent.DisplayName, agent.Node.Name, agent.Status, agent.Trust, agent.Task); err != nil {
+		status := string(agent.Status)
+		if agent.Archived {
+			status += " (archived)"
+		}
+		if _, err := fmt.Fprintf(writer, "%s\t%q\t%q\t%s\t%s\t%s\t%q\n", agent.ID, agent.DisplayName, agent.Node.Name, status, formatRelativeTime(pointerTime(agent.LastSeenAt)), agent.Trust, agent.Task); err != nil {
 			return err
 		}
 	}
@@ -43,7 +53,11 @@ func showAgentDirectory(ctx context.Context, directory *relay.Directory, remoteO
 		return err
 	}
 	if count == 0 {
-		if _, err := fmt.Fprintln(output, "No agents discovered. Connect an MCP client and check agent-relay peers."); err != nil {
+		message := "No agents discovered. Connect an MCP client and check agent-relay peers."
+		if !includeArchived {
+			message += " Use --all to include archived sessions."
+		}
+		if _, err := fmt.Fprintln(output, message); err != nil {
 			return err
 		}
 	}
@@ -53,6 +67,13 @@ func showAgentDirectory(ctx context.Context, directory *relay.Directory, remoteO
 		}
 	}
 	return nil
+}
+
+func pointerTime(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
 }
 
 func showOverview(ctx context.Context, store *storage.Store, registry *agents.Registry, command string, options overviewOptions, output io.Writer) error {

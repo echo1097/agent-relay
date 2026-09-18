@@ -1,4 +1,6 @@
-#!/bin/sh
+package installers
+
+const installerScript = `#!/bin/sh
 set -eu
 
 fail() {
@@ -286,3 +288,4 @@ main() {
 }
 
 main "$@"
+`

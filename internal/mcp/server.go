@@ -17,9 +17,10 @@ import (
 )
 
 type listInput struct {
-	Repository string        `json:"repository,omitempty" jsonschema:"Only agents publishing this repository"`
-	Project    string        `json:"project,omitempty" jsonschema:"Only agents publishing this project"`
-	Status     agents.Status `json:"status,omitempty" jsonschema:"Filter by online, busy, idle, or offline; omitted includes every state"`
+	Repository      string        `json:"repository,omitempty" jsonschema:"Only agents publishing this repository"`
+	Project         string        `json:"project,omitempty" jsonschema:"Only agents publishing this project"`
+	Status          agents.Status `json:"status,omitempty" jsonschema:"Filter by online, busy, idle, or offline; archived sessions are hidden unless include_archived is true"`
+	IncludeArchived bool          `json:"include_archived,omitempty" jsonschema:"Include archived sessions; default hides archived sessions"`
 }
 
 type agentInput struct {
@@ -134,7 +135,13 @@ func New(session *relay.Session, version string, logger *slog.Logger) *sdk.Serve
 		if input.Status != "" && !input.Status.Valid() {
 			return nil, errors.New("invalid status filter")
 		}
-		result, err := session.Directory.List(ctx)
+		var result relay.AgentList
+		var err error
+		if input.IncludeArchived {
+			result, err = session.Directory.ListAll(ctx)
+		} else {
+			result, err = session.Directory.List(ctx)
+		}
 		if err != nil {
 			return nil, err
 		}

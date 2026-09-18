@@ -138,6 +138,36 @@ func TestToolsAndSessionLifecycle(t *testing.T) {
 		t.Fatal("private metadata exposed")
 	}
 	callTool(t, client, "relay.list_agents", map[string]any{"repository": "github.com/team/backend", "status": "busy"}, false)
+	archived, err := session.Directory.Registry.Register(context.Background(), agents.Registration{DisplayName: "archived-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Directory.Registry.Disconnect(context.Background(), archived.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Directory.Store.RetainAgents(context.Background(), archived.NodeID, archived.LastSeenAt.Add(8*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	defaultAgents := callTool(t, client, "relay.list_agents", map[string]any{}, false)
+	for _, item := range defaultAgents["agents"].([]any) {
+		if item.(map[string]any)["display_name"].(string) == "archived-session" {
+			t.Fatal("archived agent in default MCP directory")
+		}
+	}
+	allAgents := callTool(t, client, "relay.list_agents", map[string]any{"include_archived": true}, false)
+	foundArchived := false
+	for _, item := range allAgents["agents"].([]any) {
+		if item.(map[string]any)["display_name"].(string) == "archived-session" {
+			foundArchived = true
+		}
+	}
+	if !foundArchived {
+		t.Fatal("archived agent missing from inclusive MCP directory")
+	}
+	archivedView := callTool(t, client, "relay.get_agent", map[string]any{"agent_id": archived.ID}, false)
+	if archivedView["display_name"] != "archived-session" || archivedView["archived"] != true {
+		t.Fatalf("archived get by ID failed: %+v", archivedView)
+	}
 	callTool(t, client, "relay.update_status", map[string]any{"status": "invalid", "task": "must not persist"}, true)
 	agent, _ = session.Directory.Registry.Get(context.Background(), agentID)
 	if agent.Task != "Investigating auth" {

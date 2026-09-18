@@ -69,6 +69,10 @@ func Configure(client Client, binaryPath, relayHome string, replace bool) (filee
 }
 
 func Remove(client Client, binaryPath, relayHome string) (fileedit.Result, error) {
+	data, _, err := fileedit.Read(client.Path)
+	if err != nil || data == nil {
+		return fileedit.Result{}, err
+	}
 	return fileedit.Update(client.Path, func(data []byte) ([]byte, error) {
 		return edit(data, client.Name, binaryPath, relayHome, false, true)
 	})

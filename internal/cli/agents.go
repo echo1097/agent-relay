@@ -7,16 +7,21 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"agent-relay/internal/agents"
+	"agent-relay/internal/storage"
 )
 
 const agentUsage = `Usage: agent-relay agents [action] [options]
 
 Actions:
   list                       List local and remote agents (default); --local skips peer lookup
+  retention                  Show session archive and deletion settings
+  set-retention              Update retention settings; use --archive-days N and/or --delete-days N
   get --id ID                Show one agent as JSON
   register --name NAME       Register a session and print its ID
   heartbeat --id ID          Refresh presence
@@ -25,19 +30,23 @@ Actions:
   disconnect --id ID         Mark a session offline immediately
 
 Every action accepts --home PATH.
+Set-retention accepts --archive-days N and --delete-days N; provide at least one.
 Register also accepts --id ID to reconnect an existing session and --provider NAME.
 Register and update-metadata accept --task, --project, --repository, --branch,
 --cwd, and repeated --file flags. Omitted metadata fields are cleared.
 `
 
 type agentOptions struct {
-	local    bool
-	action   string
-	id       string
-	name     string
-	provider string
-	state    string
-	metadata agents.Metadata
+	local       bool
+	all         bool
+	action      string
+	id          string
+	name        string
+	provider    string
+	state       string
+	archiveDays *int
+	deleteDays  *int
+	metadata    agents.Metadata
 }
 
 func agentArguments(flags *flag.FlagSet, args []string) (*agentOptions, []string, error) {
@@ -49,6 +58,27 @@ func agentArguments(flags *flag.FlagSet, args []string) (*agentOptions, []string
 	switch options.action {
 	case "list":
 		flags.BoolVar(&options.local, "local", false, "list only local sessions without network requests")
+		flags.BoolVar(&options.all, "all", false, "include archived sessions")
+		return options, args, nil
+	case "retention":
+		return options, args, nil
+	case "set-retention":
+		flags.Func("archive-days", "archive offline sessions after this many days", func(value string) error {
+			days, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("archive days must be an integer: %w", err)
+			}
+			options.archiveDays = &days
+			return nil
+		})
+		flags.Func("delete-days", "delete offline sessions after this many days since last seen", func(value string) error {
+			days, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("delete days must be an integer: %w", err)
+			}
+			options.deleteDays = &days
+			return nil
+		})
 		return options, args, nil
 	case "register":
 		flags.StringVar(&options.name, "name", "", "agent display name")
@@ -74,9 +104,26 @@ func agentArguments(flags *flag.FlagSet, args []string) (*agentOptions, []string
 	return options, args, nil
 }
 
-func runAgents(ctx context.Context, registry *agents.Registry, options *agentOptions, output io.Writer) error {
+func runAgents(ctx context.Context, store *storage.Store, registry *agents.Registry, options *agentOptions, output io.Writer) error {
 	if options.action == "list" {
-		return listAgents(ctx, registry, output)
+		return listAgents(ctx, registry, options.all, output)
+	}
+	if options.action == "retention" {
+		policy, err := store.RetentionPolicy(ctx)
+		if err != nil {
+			return err
+		}
+		return printRetentionPolicy(output, policy)
+	}
+	if options.action == "set-retention" {
+		if options.archiveDays == nil && options.deleteDays == nil {
+			return errors.New("at least one of --archive-days or --delete-days is required")
+		}
+		policy, err := store.UpdateRetentionPolicy(ctx, options.archiveDays, options.deleteDays)
+		if err != nil {
+			return err
+		}
+		return printRetentionPolicy(output, policy)
 	}
 	if options.action != "register" && options.id == "" {
 		return errors.New("--id is required")
@@ -110,21 +157,55 @@ func runAgents(ctx context.Context, registry *agents.Registry, options *agentOpt
 	return encoder.Encode(agent)
 }
 
-func listAgents(ctx context.Context, registry *agents.Registry, output io.Writer) error {
+func printRetentionPolicy(output io.Writer, policy agents.RetentionPolicy) error {
+	if _, err := fmt.Fprintln(output, "Retention policy"); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(output, "  Archive after: %d days\n  Delete after: %d days\n  Measured from last seen. Deletion also removes Relay history. Changes apply within one minute while daemon runs.\n", policy.ArchiveAfterDays, policy.DeleteAfterDays)
+	return err
+}
+
+func listAgents(ctx context.Context, registry *agents.Registry, includeArchived bool, output io.Writer) error {
 	localAgents, err := registry.List(ctx)
 	if err != nil {
 		return err
 	}
-	if len(localAgents) == 0 {
-		_, err := fmt.Fprintln(output, "No local agents.")
-		return err
-	}
-	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "ID\tAGENT\tSTATUS\tTASK"); err != nil {
-		return err
-	}
+	visibleAgents := make([]agents.Agent, 0, len(localAgents))
 	for _, agent := range localAgents {
-		if _, err := fmt.Fprintf(writer, "%s\t%q\t%s\t%q\n", agent.ID, agent.DisplayName, agent.Status, agent.Task); err != nil {
+		if !includeArchived && agent.Archived {
+			continue
+		}
+		visibleAgents = append(visibleAgents, agent)
+	}
+	if len(visibleAgents) == 0 {
+		message := "No local agents."
+		if len(localAgents) > 0 && !includeArchived {
+			message = "No active agents. Use --all to include archived sessions."
+		}
+		_, err := fmt.Fprintln(output, message)
+		return err
+	}
+	sort.SliceStable(visibleAgents, func(left, right int) bool {
+		leftActive := visibleAgents[left].Status != agents.Offline
+		rightActive := visibleAgents[right].Status != agents.Offline
+		if leftActive != rightActive {
+			return leftActive
+		}
+		if !visibleAgents[left].LastSeenAt.Equal(visibleAgents[right].LastSeenAt) {
+			return visibleAgents[left].LastSeenAt.After(visibleAgents[right].LastSeenAt)
+		}
+		return visibleAgents[left].ID < visibleAgents[right].ID
+	})
+	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	if _, err := fmt.Fprintln(writer, "ID\tAGENT\tSTATUS\tLAST SEEN\tTASK"); err != nil {
+		return err
+	}
+	for _, agent := range visibleAgents {
+		status := string(agent.Status)
+		if agent.Archived {
+			status += " (archived)"
+		}
+		if _, err := fmt.Fprintf(writer, "%s\t%q\t%s\t%s\t%q\n", agent.ID, agent.DisplayName, status, formatRelativeTime(agent.LastSeenAt), agent.Task); err != nil {
 			return err
 		}
 	}

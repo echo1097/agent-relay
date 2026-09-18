@@ -1,10 +1,12 @@
 package transport
 
 import (
-	"agent-relay/internal/storage"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,9 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"agent-relay/internal/agents"
 	"agent-relay/internal/config"
 	"agent-relay/internal/messaging"
 	"agent-relay/internal/protocol"
+	"agent-relay/internal/storage"
 )
 
 func transportFixture(t *testing.T, handler http.HandlerFunc) (*Service, messaging.Message, string) {
@@ -148,5 +152,96 @@ func TestRejectionTextNeverEscapesPeerResponse(t *testing.T) {
 	retry, reason := service.Send(context.Background(), message, peerID)
 	if retry || strings.Contains(reason, secret) || !strings.HasPrefix(reason, protocol.NodeNotTrusted) {
 		t.Fatalf("unsafe reason: %s", reason)
+	}
+}
+
+func TestTickSkipsMessageDeletedDuringSend(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "relay.db")
+	store, err := storage.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	node, err := store.Node(ctx, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	messageID, err := messaging.NewID("msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationID, err := messaging.NewID("conv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderID, err := messaging.NewID("agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipientID, err := messaging.NewID("agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerID, err := messaging.NewID("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenAt := time.Now().UTC().Add(-31 * 24 * time.Hour)
+	if _, err := store.RegisterAgent(ctx, agents.Agent{ID: senderID, NodeID: node.ID, DisplayName: "sender", Status: agents.Offline, RegisteredAt: seenAt, LastSeenAt: seenAt}, false); err != nil {
+		t.Fatal(err)
+	}
+	message := messaging.Message{ID: messageID, ConversationID: conversationID, SenderAgentID: senderID, RecipientAgentID: recipientID, Type: messaging.MessageType, Text: "hello", CreatedAt: seenAt}
+	queueAt := time.Now().UTC()
+	deadline := queueAt.Add(time.Hour)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var incoming protocol.Message
+		if err := json.NewDecoder(request.Body).Decode(&incoming); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		result, err := store.RetainAgents(ctx, node.ID, time.Now().UTC())
+		if err != nil || result.Deleted != 1 {
+			http.Error(writer, "retention did not delete the queued session", http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set(protocol.VersionHeader, "1")
+		_ = json.NewEncoder(writer).Encode(protocol.DeliveryAck{ProtocolVersion: protocol.Version, NodeID: peerID, MessageID: incoming.ID, Status: "delivered", ReceivedAt: time.Now().UTC()})
+	}))
+	defer server.Close()
+	host, portText, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPeerTrust(ctx, storage.PeerTrust{NodeID: peerID, Name: "peer", State: storage.Trusted, Address: host, Port: port, Development: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, inserted, err := store.QueueMessage(ctx, message, peerID, queueAt, deadline); err != nil || !inserted {
+		t.Fatalf("queue: %v %v", inserted, err)
+	}
+	var logs bytes.Buffer
+	cfg := config.Defaults()
+	cfg.Network.Development = true
+	service := New(store, node.ID, "", cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+	defer service.Client.CloseIdleConnections()
+	if err := service.Tick(ctx); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if _, err := store.GetMessage(ctx, message.ID); err == nil {
+		t.Fatal("retention resurrected deleted message")
+	} else if !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("message lookup: %v", err)
+	}
+	if _, err := store.GetConversation(ctx, conversationID); err == nil {
+		t.Fatal("retention resurrected deleted conversation")
+	} else if !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("conversation lookup: %v", err)
+	}
+	if strings.Contains(logs.String(), "message delivered") || strings.Contains(logs.String(), "delivery failed") {
+		t.Fatalf("logged delivery for deleted message: %s", logs.String())
 	}
 }

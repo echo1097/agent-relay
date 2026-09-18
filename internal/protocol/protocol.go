@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -52,6 +53,8 @@ type Agent struct {
 	Project     string        `json:"project,omitempty"`
 	Repository  string        `json:"repository,omitempty"`
 	Branch      string        `json:"branch,omitempty"`
+	Archived    bool          `json:"archived,omitempty"`
+	LastSeenAt  *time.Time    `json:"last_seen_at,omitempty"`
 }
 
 type AgentList struct {
@@ -137,7 +140,12 @@ func PublicAgent(localAgent agents.Agent) Agent {
 	if name == "" {
 		name = "agent"
 	}
-	return Agent{ID: localAgent.ID, DisplayName: name, Provider: publicText(localAgent.Provider, 128), Status: localAgent.Status, Task: publicText(localAgent.Task, 2048), Project: publicText(localAgent.Project, 255), Repository: publicRepository(localAgent.Repository), Branch: publicText(localAgent.Branch, 255)}
+	var lastSeenAt *time.Time
+	if !localAgent.LastSeenAt.IsZero() {
+		value := localAgent.LastSeenAt
+		lastSeenAt = &value
+	}
+	return Agent{ID: localAgent.ID, DisplayName: name, Provider: publicText(localAgent.Provider, 128), Status: localAgent.Status, Task: publicText(localAgent.Task, 2048), Project: publicText(localAgent.Project, 255), Repository: publicRepository(localAgent.Repository), Branch: publicText(localAgent.Branch, 255), Archived: localAgent.Archived, LastSeenAt: lastSeenAt}
 }
 
 func (node Node) Validate() error {
@@ -167,6 +175,9 @@ func (agent Agent) Validate() error {
 	}
 	if !safeText(agent.DisplayName, 255) || !safeText(agent.Provider, 128) || !safeText(agent.Task, 2048) || !safeText(agent.Project, 255) || !safeText(agent.Branch, 255) || (agent.Repository != "" && publicRepository(agent.Repository) != agent.Repository) {
 		return errors.New("unsafe public metadata")
+	}
+	if agent.LastSeenAt != nil && agent.LastSeenAt.IsZero() {
+		return errors.New("invalid last-seen timestamp")
 	}
 	return nil
 }

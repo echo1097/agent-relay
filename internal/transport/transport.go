@@ -222,11 +222,14 @@ func (service *Service) Tick(ctx context.Context) error {
 		}
 		message, err := service.Store.GetMessage(ctx, item.MessageID)
 		if err != nil {
+			if errors.Is(err, messaging.ErrNotFound) {
+				continue
+			}
 			return err
 		}
 		if message.Status != messaging.Sending {
 			if _, err := service.Store.UpdateMessageStatus(ctx, message.ID, messaging.Sending, time.Now().UTC()); err != nil {
-				if errors.Is(err, messaging.ErrTransition) {
+				if errors.Is(err, messaging.ErrTransition) || errors.Is(err, messaging.ErrNotFound) {
 					continue
 				}
 				return err
@@ -247,6 +250,9 @@ func (service *Service) Tick(ctx context.Context) error {
 		}
 		now = time.Now().UTC()
 		if err := service.Store.FinishDelivery(ctx, message.ID, status, now.Add(RetryDelay(item.Attempts, service.RetryInterval)), now, reason); err != nil {
+			if errors.Is(err, messaging.ErrNotFound) {
+				continue
+			}
 			return err
 		}
 		event := "message delivered"

@@ -89,29 +89,42 @@ The background service starts at login. Use these commands to inspect and manage
 | `agent-relay dnd` | Toggle receiving new messages and questions. |
 | `agent-relay nodeid` | Print this computer's node ID. |
 | `agent-relay peers` | List discovered computers and their trust state. |
-| `agent-relay agents` | Discover local and remote agent sessions. |
+| `agent-relay agents` | List local and remote sessions, active first, with last-seen ages. |
 | `agent-relay agents --local` | List local sessions without peer lookup. |
+| `agent-relay agents --all` | Include archived sessions in the list. |
+| `agent-relay agents retention` | Show session archive and deletion ages. |
+| `agent-relay agents set-retention --archive-days 7 --delete-days 30` | Change session retention on this computer. |
 | `agent-relay inbox` | Read unread messages and pending questions. |
 | `agent-relay conversations` | Show the 20 most recently updated conversations. |
+| `agent-relay update [--version TAG]` | Update this installer-managed installation. |
+| `agent-relay uninstall` | Remove the managed installation while retaining Relay data and backups. |
 | `agent-relay service status` | Check the background service. |
 | `agent-relay service restart` | Restart the background service. |
 | `agent-relay doctor` | Diagnose setup and connection problems. |
 | `agent-relay block NODE_ID` | Block communication with a peer. |
 | `agent-relay help` | Explore the command line. |
 
+Offline sessions are archived after 7 days and deleted, together with their local Relay history, after 30 days. Both ages are measured from the session's last-seen time. Read [session retention](docs/retention.md) for settings, recovery, and deletion behavior.
+
 ## Update
 
-Rerun the installation command to install the latest release. Your identity, messages, and trust settings are preserved. The installer updates and restarts the background service; reconnect your MCP clients afterward to load the updated tools.
+Update to the latest release:
+
+```sh
+agent-relay update
+```
+
+The command reuses your installation's recorded paths and service name, verifies the download, and restarts the background service. Your identity, messages, and trust settings are preserved. Use `agent-relay update --version TAG` to select a release. Reconnect MCP clients afterward. Older binaries can use the [installer fallback](docs/install.md#older-binary-fallback).
 
 ## Uninstall
 
 ```sh
-curl -fsSL https://echo1097.github.io/agent-relay/install.sh | sh -s -- --uninstall
+agent-relay uninstall
 ```
 
-Uninstall removes the managed executable, stops and removes its service, and removes matching Relay client entries. Your data, identities, messages, logs, and backups are retained. Reconnect your coding clients afterward.
+Uninstall works offline and removes the managed executable, service, matching client entries, Relay's startup sections in `AGENTS.md`/`CLAUDE.md`, and unchanged managed skills. Your personal instructions, customized skills, data, identities, messages, logs, and backups are preserved. Reconnect your coding clients afterward.
 
-For custom installation paths or modified client entries, follow the [uninstall instructions](docs/install.md#uninstall).
+Both commands require an installer-managed executable. Reuse any custom `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, or XDG settings from installation. See the [installation guide](docs/install.md) for custom paths and older binaries.
 
 ## Privacy and trust
 

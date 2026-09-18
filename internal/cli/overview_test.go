@@ -27,12 +27,18 @@ func TestRemoteAgentCommands(t *testing.T) {
 	agentID, _ := messaging.NewID("agent")
 	remoteNode := protocol.Node{ID: nodeID, Name: "machine-b"}
 	remoteAgent := protocol.Agent{ID: agentID, DisplayName: "claude-auth", Status: agents.Busy, Task: "Auth context"}
+	archivedID, _ := messaging.NewID("agent")
+	archivedAgent := protocol.Agent{ID: archivedID, DisplayName: "archived-auth", Status: agents.Offline, Archived: true, Task: "Old auth context"}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set(protocol.VersionHeader, "1")
 		if request.URL.Path == "/v1/hello" {
 			json.NewEncoder(writer).Encode(protocol.Hello{Protocol: protocol.Name, ProtocolVersion: 1, Node: remoteNode, Version: "test"})
 		} else {
-			json.NewEncoder(writer).Encode(protocol.AgentList{ProtocolVersion: 1, Agents: []protocol.Agent{remoteAgent}})
+			remoteAgents := []protocol.Agent{remoteAgent}
+			if request.URL.Query().Get("include_archived") == "true" {
+				remoteAgents = append(remoteAgents, archivedAgent)
+			}
+			json.NewEncoder(writer).Encode(protocol.AgentList{ProtocolVersion: 1, Agents: remoteAgents})
 		}
 	}))
 	defer server.Close()
@@ -69,6 +75,12 @@ func TestRemoteAgentCommands(t *testing.T) {
 	}
 	if output := run("agents", "--local"); strings.Contains(output, "claude-auth") {
 		t.Fatal("remote agent in local listing")
+	}
+	if output := run("agents"); strings.Contains(output, "archived-auth") {
+		t.Fatal("archived remote agent in default directory")
+	}
+	if output := run("agents", "--all"); !strings.Contains(output, "archived-auth") || !strings.Contains(output, "offline (archived)") {
+		t.Fatal("archived remote agent missing from all directory", output)
 	}
 	peer.State = storage.Blocked
 	if err := store.SetPeerTrust(ctx, peer); err != nil {

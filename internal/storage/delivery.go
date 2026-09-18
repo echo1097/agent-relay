@@ -113,10 +113,28 @@ func (store *Store) FinishDelivery(ctx context.Context, messageID string, status
 		return messaging.ErrInvalid
 	}
 	return store.messageTransaction(ctx, func(conn *sql.Conn) error {
-		if _, err := conn.ExecContext(ctx, "UPDATE outbox SET attempts = attempts + 1, next_attempt_at = ?, last_error = ? WHERE message_id = ?", messageTime(nextAt), reason, messageID); err != nil {
+		result, err := conn.ExecContext(ctx, "UPDATE outbox SET attempts = attempts + 1, next_attempt_at = ?, last_error = ? WHERE message_id = ?", messageTime(nextAt), reason, messageID)
+		if err != nil {
 			return err
 		}
-		_, err := conn.ExecContext(ctx, "UPDATE messages SET status = ?, delivered_at = CASE WHEN ? = 'delivered' THEN COALESCE(delivered_at, ?) ELSE delivered_at END WHERE id = ? AND received_at IS NULL AND status IN ('created', 'sending', 'pending_delivery')", status, status, messageTime(now), messageID)
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return messaging.ErrNotFound
+		}
+		result, err = conn.ExecContext(ctx, "UPDATE messages SET status = ?, delivered_at = CASE WHEN ? = 'delivered' THEN COALESCE(delivered_at, ?) ELSE delivered_at END WHERE id = ? AND received_at IS NULL AND status IN ('created', 'sending', 'pending_delivery')", status, status, messageTime(now), messageID)
+		if err != nil {
+			return err
+		}
+		updated, err = result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return messaging.ErrNotFound
+		}
 		return err
 	})
 }

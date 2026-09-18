@@ -399,7 +399,7 @@ func TestConversationConstraintsAndSchemaUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := old.RegisterAgent(ctx, agents.Agent{ID: "old_agent", NodeID: node.ID, DisplayName: "old", Status: agents.Online, RegisteredAt: now, LastSeenAt: now}, false); err != nil {
+	if _, err := old.db.ExecContext(ctx, "INSERT INTO agents (id, node_id, display_name, status, registered_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)", "old_agent", node.ID, "old", agents.Online, messageTime(now), messageTime(now)); err != nil {
 		t.Fatal(err)
 	}
 	if err := old.Close(); err != nil {

@@ -47,6 +47,8 @@ Commands:
   mcp       Serve agent tools over stdio (one coding session per process)
   setup     Configure Codex and Claude Code MCP clients (setup help)
   service   Install and control a background daemon (service help)
+  update    Update this installation to the latest release (update help)
+  uninstall Remove this installation and its client setup, preserving data
   messages  Queue messages or inspect local inboxes (messages help)
   version   Print the binary version
   help      Show this help
@@ -82,6 +84,8 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return runSetup(args[1:], output, errorOutput)
 	case "service":
 		return runService(ctx, args[1:], output, errorOutput)
+	case "update", "uninstall":
+		return runMaintenance(ctx, command, args[1:], output, errorOutput)
 	case "mcp", "daemon", "dnd", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
@@ -291,9 +295,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	}
 	if command == "agents" {
 		if agentFlags.action == "list" && !agentFlags.local {
-			return showAgentDirectory(ctx, directory, false, output)
+			return showAgentDirectory(ctx, directory, false, agentFlags.all, output)
 		}
-		return runAgents(ctx, registry, agentFlags, output)
+		return runAgents(ctx, store, registry, agentFlags, output)
 	}
 	running, err := daemon.Running(paths.Lock)
 	if err != nil {
@@ -332,7 +336,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if err != nil {
 		return err
 	}
-	if err := listAgents(ctx, registry, output); err != nil {
+	if err := listAgents(ctx, registry, false, output); err != nil {
 		return err
 	}
 	if _, err := showTailscale(ctx, output, client); err != nil {
@@ -347,7 +351,7 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 	if _, err := fmt.Fprintln(output, "\nRemote agents"); err != nil {
 		return err
 	}
-	if err := showAgentDirectory(ctx, directory, true, output); err != nil {
+	if err := showAgentDirectory(ctx, directory, true, false, output); err != nil {
 		_, writeErr := fmt.Fprintf(output, "Remote agent lookup unavailable: %v. Run agent-relay doctor.\n", err)
 		return writeErr
 	}

@@ -20,7 +20,7 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 		clientName, args = args[0], args[1:]
 	}
 	if clientName == "help" {
-		_, err := fmt.Fprintln(output, "Usage: agent-relay setup [codex|claude] [--home PATH] [--config PATH] [--replace|--remove] [--if-present]\nDetect installed clients and install the agent-relay stdio MCP server and skill.\n--config requires an explicit client. --replace replaces a conflicting agent-relay entry.")
+		_, err := fmt.Fprintln(output, "Usage: agent-relay setup [codex|claude] [--home PATH] [--config PATH] [--replace|--remove] [--if-present]\nDetect installed clients and install the agent-relay stdio MCP server, startup instructions, and skill.\n--remove cleans up matching MCP entries, managed startup instructions, and unchanged managed skills, even if the clients are no longer installed.\n--config requires an explicit client. --replace replaces a conflicting agent-relay entry.")
 		return err
 	}
 	if clientName != "" && clientName != "codex" && clientName != "claude" {
@@ -31,7 +31,7 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 	home := flags.String("home", "", "Relay application directory; use the same home as the daemon")
 	configPath := flags.String("config", "", "explicit client config file (requires codex or claude)")
 	replace := flags.Bool("replace", false, "replace a conflicting agent-relay entry after backing up")
-	remove := flags.Bool("remove", false, "remove only a matching Agent Relay entry after backing up")
+	remove := flags.Bool("remove", false, "remove matching MCP entries, managed startup instructions, and unchanged managed skills")
 	ifPresent := flags.Bool("if-present", false, "succeed when no supported clients are detected")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -74,7 +74,7 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 		if clientName != "" && client.Name != clientName {
 			continue
 		}
-		if clientName == "" && !client.Detected {
+		if clientName == "" && !client.Detected && !*remove {
 			fmt.Fprintf(output, "%s: not detected; skipped\n", client.Name)
 			continue
 		}
@@ -124,6 +124,10 @@ func runSetup(args []string, output, errorOutput io.Writer) error {
 	}
 	if setupErrors != nil {
 		return setupErrors
+	}
+	if *remove {
+		_, err = fmt.Fprintln(output, "Restart or reconnect the coding client to unload Relay tools, startup instructions, and skills.")
+		return err
 	}
 	_, err = fmt.Fprintln(output, "Restart or reconnect the coding client to load Relay tools and the skill. Use the same --home for the daemon. Setup does not start the daemon or change client tool approvals.")
 	return err
