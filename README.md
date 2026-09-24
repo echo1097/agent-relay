@@ -85,6 +85,7 @@ The background service starts at login. Use these commands to inspect and manage
 
 | Command | Purpose |
 | --- | --- |
+| `agent-relay app` | Open the desktop preview from a source checkout (see below). |
 | `agent-relay status` | Show local Relay status. |
 | `agent-relay dnd` | Toggle receiving new messages and questions. |
 | `agent-relay nodeid` | Print this computer's node ID. |
@@ -145,3 +146,25 @@ Start with `agent-relay doctor`. If a peer is missing, check that both computers
 - [Report an issue](https://github.com/echo1097/agent-relay/issues)
 
 For source builds and contributions, see the [development guide](docs/development.md) and [architecture](docs/architecture.md).
+
+## Desktop preview
+
+The Electron app shows real local conversation history, unread messages, incoming questions awaiting replies, and local and reachable remote agents. It refreshes every 15 seconds while visible and supports manual refresh. Opening a conversation does not mark it read for the receiving agent. Sending replies remains a coding-agent action; the desktop does not call model APIs.
+
+From a source checkout, with Node.js 22.12+ and Go installed:
+
+```sh
+source .venv/bin/activate
+npm install --prefix desktop
+npm run build --prefix desktop
+go build -o bin/agent-relay ./cmd/agent-relay
+./bin/agent-relay app
+```
+
+To use `agent-relay app` directly in this terminal, run `export PATH="$PWD/bin:$PATH"`. The launcher also finds the desktop folder beside the source-built binary when you are outside the repository. For another location, set `AGENT_RELAY_APP_DIR` to the absolute path of the `desktop` folder. Release installers do not bundle the desktop preview yet.
+
+Use `./bin/agent-relay app --home PATH` to inspect another Relay data directory. The launcher passes its own binary path and selected home to Electron. `npm start --prefix desktop` uses `bin/agent-relay` and `~/.agent-relay`; set `AGENT_RELAY_BINARY` to override the binary for that launch.
+
+After editing the frontend, run `npm run build --prefix desktop` and quit and reopen the app. After backend changes, rebuild `bin/agent-relay` and restart the app. If updating the installed background service too, follow the backend restart instructions in [development](docs/development.md). No development server is needed. Saved local history remains readable when the daemon is stopped; new message delivery needs a running daemon.
+
+The desktop uses a narrow Electron IPC bridge to run `agent-relay desktop` for a JSON snapshot and `agent-relay desktop --conversation ID` for history. It reuses the existing Go storage and peer-discovery code without exposing a new network endpoint. Peer outages are shown explicitly; unavailable agent names fall back to their stored IDs. Search covers conversation titles, latest-message previews, and participants. Conversation lists render 50 at a time; history shows the latest 100 messages with a button to reveal older messages. Backend responses are limited to 32 MiB and 20 seconds, with an error and retry if either limit is exceeded.

@@ -31,6 +31,8 @@ const usage = `Agent Relay
 Usage: agent-relay <command> [--home PATH]
 
 Commands:
+  app       Open the Electron desktop app (app help)
+  desktop   Read desktop data as JSON [--conversation ID] [--home PATH]
   daemon    Run the local daemon and presence checks in the foreground
   dnd       Toggle receiving new messages and questions on or off
   nodeid    Print this computer's node ID
@@ -82,17 +84,23 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return err
 	case "setup":
 		return runSetup(args[1:], output, errorOutput)
+	case "app":
+		return runApp(args[1:], output, errorOutput)
 	case "service":
 		return runService(ctx, args[1:], output, errorOutput)
 	case "update", "uninstall":
 		return runMaintenance(ctx, command, args[1:], output, errorOutput)
-	case "mcp", "daemon", "dnd", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
+	case "desktop", "mcp", "daemon", "dnd", "nodeid", "status", "agents", "inbox", "conversations", "peers", "doctor", "messages", "trust", "block", "untrust", "trust-state":
 	default:
 		return fmt.Errorf("unknown command %q; run agent-relay help", command)
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(errorOutput)
 	home := flags.String("home", "", "application directory")
+	conversationID := ""
+	if command == "desktop" {
+		flags.StringVar(&conversationID, "conversation", "", "read one conversation's history")
+	}
 	installation := false
 	if command == "doctor" {
 		flags.BoolVar(&installation, "installation", false, "report pending first-time agent, client, and peer setup as NEXT steps")
@@ -259,6 +267,9 @@ func runWithClient(ctx context.Context, args []string, output, errorOutput io.Wr
 		return showOverview(ctx, store, registry, command, overview, output)
 	}
 	directory := &relay.Directory{Registry: registry, Store: store, Node: protocol.PublicNode(node.ID, node.Name), Path: filepath.Join(paths.Home, "peers.json"), Port: cfg.Network.Port, Development: cfg.Network.Development, Tailscale: client, Prober: discovery.NewProber()}
+	if command == "desktop" {
+		return showDesktop(ctx, store, directory, paths, conversationID, output)
+	}
 	if command == "mcp" {
 		service := transport.New(store, node.ID, "", cfg, logger)
 		defer service.Client.CloseIdleConnections()

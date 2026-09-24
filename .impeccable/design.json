@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-24T02:00:00Z",
+  "title": "Design System: Agent Relay",
+  "extensions": {
+    "shadows": [{ "name": "toast", "value": "0 8px 25px #0005", "purpose": "Transient feedback only." }],
+    "motion": [{ "name": "control", "value": "160ms ease-out", "purpose": "Hover and selected states." }],
+    "breakpoints": [{ "name": "compactDesktop", "value": "1120px" }]
+  },
+  "components": [
+    { "name": "Primary button", "kind": "button", "refersTo": "button-primary", "description": "Send a message.", "html": "<button>Send message</button>", "css": "button { background: #c5dc9c; color: #1c2519; border: 0; border-radius: 6px; padding: 9px 13px; font: 550 12px system-ui; }" },
+    { "name": "Search", "kind": "input", "description": "Find conversations or agents.", "html": "<input placeholder=\"Search conversations\" aria-label=\"Search conversations\" />", "css": "input { background: #121513; color: #edf0e9; border: 1px solid #333b35; border-radius: 7px; padding: 10px; font: 12px system-ui; } input::placeholder { color: #a5afa5; }" }
+  ],
+  "narrative": { "northStar": "Conversation first", "overview": "Flat, quiet surfaces put conversations and their controls ahead of decoration." }
+}

@@ -67,7 +67,7 @@ func TestRemoteAgentCommands(t *testing.T) {
 		}
 		return output.String()
 	}
-	for _, command := range []string{"agents", "status"} {
+	for _, command := range []string{"agents", "status", "desktop"} {
 		output := run(command)
 		if !strings.Contains(output, "claude-auth") || !strings.Contains(output, "machine-b") || !strings.Contains(output, "Auth context") {
 			t.Fatalf("%s omitted remote agent: %s", command, output)
@@ -89,6 +89,9 @@ func TestRemoteAgentCommands(t *testing.T) {
 	if output := run("agents"); strings.Contains(output, "claude-auth") {
 		t.Fatal("blocked agent in directory")
 	}
+	if output := run("desktop"); strings.Contains(output, "claude-auth") {
+		t.Fatal("blocked agent in desktop directory")
+	}
 	peer.State = storage.Trusted
 	if err := store.SetPeerTrust(ctx, peer); err != nil {
 		t.Fatal(err)
@@ -96,6 +99,12 @@ func TestRemoteAgentCommands(t *testing.T) {
 	server.Close()
 	if output := run("agents"); !strings.Contains(output, "Unavailable node: "+nodeID) {
 		t.Fatal("unreachable peer not explained", output)
+	}
+	var snapshot struct {
+		UnavailableNodes []string `json:"unavailableNodes"`
+	}
+	if err := json.Unmarshal([]byte(run("desktop")), &snapshot); err != nil || len(snapshot.UnavailableNodes) != 1 || snapshot.UnavailableNodes[0] != nodeID {
+		t.Fatalf("unreachable desktop peer not explained: %+v %v", snapshot, err)
 	}
 }
 
